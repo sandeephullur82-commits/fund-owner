@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-// Paths that should redirect signed-in users to their dashboard
 const signedInRedirectPaths = [
   "/sign-in",
   "/sign-up",
@@ -12,58 +11,42 @@ const signedInRedirectPaths = [
   "/customer/signin",
 ];
 
-// Paths accessible regardless of auth state
 const publicPaths = [
   "/",
   "/workspace-selection",
   "/organization/invitation",
 ];
 
-const isSignedInRedirectPath = (pathname: string) => {
-  return signedInRedirectPaths.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
-};
+const isSignedInRedirectPath = (pathname: string) =>
+  signedInRedirectPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
-const isPublicPath = (pathname: string) => {
-  return publicPaths.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
-};
+const isPublicPath = (pathname: string) =>
+  publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+const isProtectedPath = (pathname: string) =>
+  !isPublicPath(pathname) &&
+  !isSignedInRedirectPath(pathname) &&
+  pathname !== "/auth/callback";
 
 export default function AuthRedirectManager() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
-  const location = useLocation();
-  const path = location.pathname;
+  const { pathname } = useLocation();
 
   useEffect(() => {
-    if (!isLoaded) {
-      setChecking(true);
-      return;
-    }
+    if (!isLoaded) return;
 
-    // Signed-in users visiting sign-in/sign-up → send to dashboard
-    if (isSignedIn && user && isSignedInRedirectPath(path)) {
+    if (isSignedIn && user && isSignedInRedirectPath(pathname)) {
       navigate("/auth/callback", { replace: true });
-      setChecking(false);
       return;
     }
 
-    // Unauthenticated users visiting protected pages → send to sign-in
-    if (!isSignedIn || !user) {
-      if (!isPublicPath(path) && !isSignedInRedirectPath(path) && path !== "/auth/callback") {
-        navigate("/sign-in", { replace: true });
-      }
-      setChecking(false);
-      return;
+    if (!isSignedIn && isProtectedPath(pathname)) {
+      navigate("/sign-in", { replace: true });
     }
+  }, [isLoaded, isSignedIn, user, navigate, pathname]);
 
-    setChecking(false);
-  }, [isLoaded, isSignedIn, user, navigate, path]);
-
-  if (!isLoaded && !isPublicPath(path)) {
+  if (!isLoaded && isProtectedPath(pathname)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">

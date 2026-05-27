@@ -1,0 +1,158 @@
+Update the authentication, onboarding, dashboard redirect, and subscription system flow.
+
+AUTH FLOW:
+1. User clicks:
+   - Register Organization
+   - Get Started
+   → Redirect to Sign Up.
+
+2. User clicks:
+   - Login
+   - Sign In
+   → Redirect to Workspace Selection Page.
+
+3. Workspace Selection Page:
+   - Owner
+   - Pigmy Collector
+   - Customer
+
+4. Clicking any role redirects to Sign In page with selected role stored.
+
+OTP VERIFICATION FLOW:
+1. During sign up:
+   - User enters email/password.
+   - Clerk sends OTP verification.
+   - DO NOT show onboarding before OTP verification.
+   - Only after successful OTP verification continue onboarding.
+
+POST LOGIN / REGISTER REDIRECT:
+1. After successful sign in:
+   - Detect user role from Firestore.
+   - Redirect directly to related dashboard.
+   - Never redirect authenticated users to landing page.
+
+2. Redirect rules:
+   - OWNER → /dashboard/owner
+   - AGENT → /dashboard/agent
+   - CUSTOMER → /dashboard/customer
+
+3. Persist session:
+   - If user refreshes browser, remain inside dashboard until logout.
+
+ORGANIZATION ONBOARDING:
+Only OWNER can create organizations.
+
+After OTP verification:
+1. Show onboarding wizard:
+   - Organization Name
+   - Organization Logo
+   - Phone Number
+   - Address
+   - Currency
+   - Subscription Plan
+
+2. Create organization in:
+   - Clerk organization
+   - Firestore organizations collection
+
+3. Save owner profile in:
+   - users
+   - organizationMembers
+
+SUBSCRIPTION SYSTEM:
+Build internal subscription system WITHOUT Stripe or external payment gateways.
+
+SUBSCRIPTION PLANS:
+- Starter
+- Professional
+- Enterprise
+
+Each plan contains:
+- Monthly price
+- Yearly price
+- Max agents
+- Max customers
+- Features list
+
+PAYMENT FLOW:
+1. During onboarding show subscription selection.
+2. User selects:
+   - Monthly or Yearly billing
+3. Show fake/demo internal payment modal:
+   - Card Holder Name
+   - Card Number
+   - Expiry
+   - CVV
+4. Simulate payment success.
+5. Create Firestore records:
+   - subscriptions
+   - payments
+   - invoices
+
+FIRESTORE STRUCTURE:
+organizations/
+users/
+organizationMembers/
+subscriptions/
+payments/
+invoices/
+customers/
+agents/
+collections/
+
+SUBSCRIPTION DATA:
+status:
+- active
+- expired
+- cancelled
+- trial
+
+PAYMENT DATA:
+- organizationId
+- amount
+- billingCycle
+- paymentStatus
+- paidAt
+- invoiceNumber
+
+REALTIME SYSTEM:
+1. Use Firestore onSnapshot listeners everywhere.
+2. Dashboard updates instantly when Firestore changes.
+3. Firestore changes reflect instantly in UI and vice versa.
+
+ONBOARDING COMPLETION:
+After successful onboarding + payment:
+→ Redirect OWNER directly to Owner Dashboard.
+
+DASHBOARD ACCESS CONTROL:
+- OWNER only:
+  organization management
+  billing
+  subscription
+  reports
+  agent/customer management
+
+- AGENT only:
+  collections
+  assigned customers
+  visit tracking
+
+- CUSTOMER only:
+  savings history
+  payment history
+  balance
+  profile
+
+PROTECTED ROUTES:
+1. Non-authenticated users:
+   → redirect to landing page.
+
+2. Authenticated users:
+   → redirect to their dashboard automatically.
+
+3. Prevent owners from accessing agent/customer dashboard.
+
+4. Prevent agents/customers from accessing onboarding flow.
+
+FINAL REQUIREMENT:
+The app must behave like a complete production-grade realtime multi-tenant pigmy collection SaaS platform with Clerk + Firebase + realtime dashboards + internal subscription billing system.

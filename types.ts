@@ -1,14 +1,22 @@
 export type Role = "organization_owner" | "agent" | "customer" | "OWNER";
 
 export interface Organization {
-  id: string; // matches Clerk organization ID
+  id: string;
   name: string;
+  slug?: string;
+  phone?: string;
+  address?: string;
+  currency?: string;
+  logoUrl?: string;
+  ownerClerkUserId?: string;
+  ownerEmail?: string;
+  subscriptionPlanId?: string;
   createdAt: number;
 }
 
 export interface User {
-  id: string; // Firestore document id or Clerk user id for synchronized user profiles
-  clerkUserId?: string; // Clerk user id once linked
+  id: string;
+  clerkUserId?: string;
   organizationId?: string;
   role?: Role;
   name: string;
@@ -23,7 +31,7 @@ export interface User {
 }
 
 export interface Membership {
-  id: string; // organizationId_clerkUserId
+  id: string;
   organizationId: string;
   clerkUserId: string;
   role: Role;
@@ -31,9 +39,9 @@ export interface Membership {
   email: string;
   phone?: string;
   createdAt: number;
-  assignedArea?: string; // For agents
-  agentId?: string; // For customers, the agent assigned to them
-  balance?: number; // For customers
+  assignedArea?: string;
+  agentId?: string;
+  balance?: number;
   invitationId?: string;
   status?: "pending" | "active";
 }
@@ -49,7 +57,7 @@ export interface Collection {
   collectedByRole?: "OWNER" | "AGENT" | string;
   collectedByUserId?: string;
   collectedByName?: string;
-  receiptUrl?: string; // Firebase Storage URL
+  receiptUrl?: string;
 }
 
 export interface Transaction {
@@ -68,7 +76,7 @@ export interface Loan {
   organizationId: string;
   customerId: string;
   principal: number;
-  interestRate: number; // e.g., 2% monthly
+  interestRate: number;
   durationMonths: number;
   status: "pending" | "approved" | "rejected" | "active" | "closed";
   emiAmount: number;
@@ -96,4 +104,56 @@ export interface Notification {
   message: string;
   read: boolean;
   timestamp: number;
+}
+
+export type SubscriptionPlanId = "starter" | "professional" | "enterprise";
+export type BillingCycle = "monthly" | "yearly";
+export type SubscriptionStatus = "active" | "expired" | "cancelled" | "trial";
+export type PaymentStatus = "success" | "failed" | "pending";
+
+export interface Subscription {
+  id: string;
+  organizationId: string;
+  planId: SubscriptionPlanId;
+  planName: string;
+  billingCycle: BillingCycle;
+  amount: number;
+  currency: string;
+  status: SubscriptionStatus;
+  maxAgents: number;
+  maxCustomers: number;
+  startedAt: any;
+  expiresAt?: number;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export interface Payment {
+  id: string;
+  organizationId: string;
+  subscriptionId: string;
+  amount: number;
+  currency: string;
+  billingCycle: BillingCycle;
+  paymentStatus: PaymentStatus;
+  paidAt: any;
+  invoiceNumber: string;
+  cardLast4?: string;
+  createdAt: any;
+}
+
+export interface Invoice {
+  id: string;
+  organizationId: string;
+  subscriptionId: string;
+  paymentId: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  planName: string;
+  billingCycle: BillingCycle;
+  status: "paid" | "unpaid" | "cancelled";
+  issuedAt: any;
+  paidAt?: any;
+  createdAt: any;
 }

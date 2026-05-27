@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useEffect, useState } from "react";
 import { ClerkProvider, SignedIn, useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import AuthSyncService from "./components/FirestoreUserSync";
@@ -18,6 +13,7 @@ import SignUpPage from "./pages/SignUpPage";
 import AuthCallbackPage from "./pages/AuthCallback";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import OrgDashboard from "./pages/organization/OrgDashboard";
+import OwnerOnboarding from "./pages/organization/OwnerOnboarding";
 import AgentDashboard from "./pages/agent/AgentDashboard";
 import CustomerDashboard from "./pages/customer/CustomerDashboard";
 import OrgCreate from "./pages/organization/OrgCreate";
@@ -31,7 +27,11 @@ const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
 
-  if (!isLoaded) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600" /></div>;
+  if (!isLoaded) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600" />
+    </div>
+  );
   if (!isSignedIn) return <Navigate to="/sign-in" replace />;
 
   return <>{children}</>;
@@ -49,7 +49,6 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
       setActiveOrgId(organization.id);
       return;
     }
-
     if (userMemberships?.data?.length) {
       const firstOrgId = userMemberships.data[0].organization.id;
       setActiveOrgId(firstOrgId);
@@ -63,16 +62,18 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipId);
 
   if (!isLoaded || !isOrgListLoaded || membershipDocLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" /><p className="text-slate-500 text-sm">Loading your workspace...</p></div></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
+          <p className="text-slate-500 text-sm">Loading your workspace…</p>
+        </div>
+      </div>
+    );
   }
 
-  if (!isSignedIn || !user) {
-    return <Navigate to="/sign-in" replace />;
-  }
-
-  if (!membershipDoc) {
-    return <Navigate to="/router" replace />;
-  }
+  if (!isSignedIn || !user) return <Navigate to="/sign-in" replace />;
+  if (!membershipDoc) return <Navigate to="/router" replace />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
   if (!allowedRoles.includes(normalizedRole)) {
@@ -95,27 +96,6 @@ function RoleRouter() {
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipDocId);
 
   useEffect(() => {
-    const loadMembershipRole = async () => {
-      if (!user) {
-        setFirestoreMembershipRole(null);
-        setMembershipLoading(false);
-        return;
-      }
-
-      if (!activeOrgId) {
-        setFirestoreMembershipRole(null);
-        setMembershipLoading(false);
-        return;
-      }
-
-      if (membershipDoc) {
-        setFirestoreMembershipRole((membershipDoc.clerkRole || membershipDoc.role || null)?.toString() || null);
-      } else {
-        setFirestoreMembershipRole(null);
-      }
-      setMembershipLoading(false);
-    };
-
     const ensureActiveOrganization = async () => {
       if (!user || !isOrgListLoaded || organization?.id || !selectedOrgs?.length || !setActive) return;
       try {
@@ -125,38 +105,46 @@ function RoleRouter() {
       }
     };
 
+    const loadMembershipRole = () => {
+      if (!user) { setFirestoreMembershipRole(null); setMembershipLoading(false); return; }
+      if (!activeOrgId) { setFirestoreMembershipRole(null); setMembershipLoading(false); return; }
+      if (membershipDoc) {
+        setFirestoreMembershipRole((membershipDoc.clerkRole || membershipDoc.role || null)?.toString() || null);
+      } else {
+        setFirestoreMembershipRole(null);
+      }
+      setMembershipLoading(false);
+    };
+
     if (isOrgListLoaded) {
       setMembershipLoading(true);
-      ensureActiveOrganization()
-        .then(loadMembershipRole)
-        .catch((err) => {
-          console.error(err);
-          loadMembershipRole();
-        });
+      ensureActiveOrganization().then(loadMembershipRole).catch(() => loadMembershipRole());
     }
   }, [user, activeOrgId, isOrgListLoaded, selectedOrgs, setActive, membershipDoc]);
 
   if (!user) return <Navigate to="/sign-in" replace />;
-  if (!isOrgListLoaded || membershipLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
-        <p className="text-slate-500 text-sm">Loading your workspace...</p>
+  if (!isOrgListLoaded || membershipLoading || membershipDocLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
+          <p className="text-slate-500 text-sm">Loading your workspace…</p>
+        </div>
       </div>
-    </div>
-  );
-
-  const activeRole = normalizeClerkRole(
-    firestoreMembershipRole || (user?.publicMetadata as any)?.role || null
-  );
+    );
+  }
 
   if (!membershipDoc && userInvitations?.data?.length) {
     return <Navigate to="/organization/invitation" replace />;
   }
 
   if (!membershipDoc) {
-    return <Navigate to="/sign-in" replace />;
+    return <Navigate to="/onboarding" replace />;
   }
+
+  const activeRole = normalizeClerkRole(
+    firestoreMembershipRole || (user?.publicMetadata as any)?.role || null
+  );
 
   const profileCompleted = membershipDoc.profileCompleted !== false;
   if (!profileCompleted && (activeRole === "pigmy_collector" || activeRole === "customer")) {
@@ -172,29 +160,37 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center p-4 text-center">
         <div className="max-w-md w-full bg-red-50 p-6 rounded-2xl text-red-900 border border-red-200 shadow-lg">
           <h1 className="text-lg font-bold mb-2">Clerk API Key Missing</h1>
-          <p className="text-sm">Please configure the VITE_CLERK_PUBLISHABLE_KEY in your environment variables to use this application.</p>
+          <p className="text-sm">Please configure VITE_CLERK_PUBLISHABLE_KEY in your environment variables.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/router">
+    <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/auth/callback">
       <BrowserRouter>
         <AuthRedirectManager />
         <Routes>
+          {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
-
           <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
           <Route path="/sign-in/*" element={<SignInPage />} />
           <Route path="/sign-up/*" element={<SignUpPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
+
+          {/* Redirects for legacy paths */}
           <Route path="/organization/signin/*" element={<Navigate to="/sign-in" replace />} />
           <Route path="/organization/signup/*" element={<Navigate to="/sign-up" replace />} />
           <Route path="/agent/login/*" element={<Navigate to="/sign-in" replace />} />
           <Route path="/customer/signin/*" element={<Navigate to="/sign-in" replace />} />
 
+          {/* Owner onboarding — only for signed-in users without an org */}
+          <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />
+
+          {/* Profile completion — for agents & customers */}
+          <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
+
+          {/* Org management */}
           <Route path="/organization/create" element={
             <SignedIn>
               <RoleProtectedRoute allowedRoles={["organization_owner"]}>
@@ -205,8 +201,10 @@ export default function App() {
           <Route path="/organization/invitation" element={<ProtectedRoute><OrgInvitation /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
 
+          {/* Role router */}
           <Route path="/router" element={<SignedIn><RoleRouter /></SignedIn>} />
 
+          {/* Dashboards — role-protected */}
           <Route path="/dashboard/owner/*" element={
             <SignedIn>
               <RoleProtectedRoute allowedRoles={["organization_owner"]}>
@@ -228,10 +226,13 @@ export default function App() {
               </RoleProtectedRoute>
             </SignedIn>
           } />
+
+          {/* Dashboard fallbacks */}
           <Route path="/dashboard/operator/*" element={<Navigate to="/dashboard/owner" replace />} />
           <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
-          <Route path="/dashboard/*" element={<Navigate to="/dashboard/owner" replace />} />
+          <Route path="/dashboard/*" element={<Navigate to="/router" replace />} />
 
+          {/* Debug tool */}
           <Route path="/debug-user" element={
             <SignedIn>
               <ProtectedRoute>
