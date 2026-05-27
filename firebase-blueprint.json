@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "organization": {
+      "title": "Organization",
+      "description": "FundCircle Pigmy Organization details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "user": {
+      "title": "User",
+      "description": "User profiles including owners, agents, and customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "role": { "type": "string", "enum": ["organization_owner", "agent", "customer"] },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "aadhaar": { "type": "string" },
+        "assignedArea": { "type": "string" },
+        "agentId": { "type": "string" },
+        "balance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "organizationId", "role", "name", "email"]
+    },
+    "collection": {
+      "title": "Collection",
+      "description": "Recorded pigmy daily collections from customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "agentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["completed", "pending"] },
+        "receiptUrl": { "type": "string" }
+      },
+      "required": ["organizationId", "customerId", "agentId", "amount", "status"]
+    },
+    "transaction": {
+      "title": "Transaction",
+      "description": "Platform cash transactions log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "agentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["deposit", "withdrawal", "emi_payment", "loan_disbursement"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "referenceId": { "type": "string" }
+      },
+      "required": ["organizationId", "customerId", "agentId", "amount", "type"]
+    },
+    "loan": {
+      "title": "Loan",
+      "description": "Customer loans requested, active, or closed",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "principal": { "type": "number" },
+        "interestRate": { "type": "number" },
+        "durationMonths": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "active", "closed"] },
+        "emiAmount": { "type": "number" },
+        "totalComputed": { "type": "number" },
+        "balanceRemaining": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "approvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["organizationId", "customerId", "principal", "durationMonths", "status"]
+    },
+    "emi_payment": {
+      "title": "EMIPayment",
+      "description": "EMI payments against active loans",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "loanId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "agentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["organizationId", "loanId", "customerId", "agentId", "amount"]
+    },
+    "notification": {
+      "title": "Notification",
+      "description": "Alerts and messages to users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "organizationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["organizationId", "userId", "title", "message", "read"]
+    }
+  },
+  "firestore": {
+    "organizations": {
+      "schema": "organization",
+      "description": "/organizations/{orgId}"
+    },
+    "users": {
+      "schema": "user",
+      "description": "/users/{userId}"
+    },
+    "collections": {
+      "schema": "collection",
+      "description": "/collections/{colId}"
+    },
+    "transactions": {
+      "schema": "transaction",
+      "description": "/transactions/{txId}"
+    },
+    "loans": {
+      "schema": "loan",
+      "description": "/loans/{loanId}"
+    },
+    "emi_payments": {
+      "schema": "emi_payment",
+      "description": "/emi_payments/{emiId}"
+    },
+    "notifications": {
+      "schema": "notification",
+      "description": "/notifications/{notifyId}"
+    }
+  }
+}
