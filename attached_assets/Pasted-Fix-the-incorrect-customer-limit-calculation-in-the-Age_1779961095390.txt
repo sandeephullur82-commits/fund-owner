@@ -1,0 +1,172 @@
+Fix the incorrect customer limit calculation in the Agent Dashboard.
+
+==================================================
+CURRENT BUG
+
+Dashboard shows:
+
+Customer limit reached (0/-1)
+
+even though:
+
+- no customers exist
+- valid plan should exist
+- organization is active
+
+==================================================
+ROOT CAUSE
+
+The organization subscription limits are:
+
+- undefined
+- null
+- missing
+- not initialized
+
+The UI is rendering:
+
+maxCustomers = -1
+
+==================================================
+REQUIRED FIX
+
+When organization is created,
+ALWAYS initialize subscription limits.
+
+==================================================
+DEFAULT ORGANIZATION STRUCTURE
+
+organizations/{orgId}
+
+{
+plan: "free",
+
+limits: {
+maxAgents: 1,
+maxCustomers: 25
+},
+
+usage: {
+activeAgents: 1,
+activeCustomers: 0
+}
+}
+
+==================================================
+SAFE FALLBACK LOGIC
+
+NEVER use:
+
+- undefined
+- null
+- negative numbers
+
+==================================================
+ADD SAFE DEFAULTS
+
+const maxCustomers =
+Math.max(
+organization?.limits?.maxCustomers || 25,
+1
+)
+
+const activeCustomers =
+Math.max(
+organization?.usage?.activeCustomers || 0,
+0
+)
+
+==================================================
+LIMIT CHECK FIX
+
+const isLimitReached =
+activeCustomers >= maxCustomers
+
+==================================================
+DISPLAY FIX
+
+Dashboard must show:
+
+Customers
+0 / 25
+
+NOT:
+0 / -1
+
+==================================================
+IMPORTANT UI RULE
+
+Only show:
+
+"Customer limit reached"
+
+IF:
+
+activeCustomers >= maxCustomers
+
+==================================================
+HIDE ERROR STATE
+
+If valid limit exists:
+
+DO NOT show:
+
+- warning banner
+- upgrade request banner
+
+==================================================
+PLAN CARD FIX
+
+Agent dashboard sidebar must show:
+
+PLAN
+Free
+
+Collectors:
+1 / 1
+
+Customers:
+0 / 25
+
+Collections:
+0
+
+==================================================
+REALTIME FIRESTORE FIX
+
+When organization loads:
+
+If limits missing:
+
+- auto create defaults
+- update Firestore instantly
+
+==================================================
+AUTO-MIGRATION
+
+If existing organization documents are broken:
+
+Automatically patch them.
+
+Example:
+
+if (!organization.limits) {
+updateDoc(orgRef, {
+limits: {
+maxAgents: 1,
+maxCustomers: 25
+}
+})
+}
+
+==================================================
+FINAL REQUIREMENT
+
+The dashboard must:
+
+- never show negative limits
+- correctly calculate usage
+- correctly show customer counts
+- only show upgrade warning at actual limit
+- sync realtime with Firestore
+- work for owner and agent dashboards

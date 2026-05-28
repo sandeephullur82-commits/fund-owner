@@ -7,9 +7,10 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navigate } from "react-router-dom";
-import { where } from "firebase/firestore";
+import { where, doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useDocumentRealtime, useCollectionRealtime } from "@/lib/firestore-hooks";
 import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
@@ -52,15 +53,42 @@ export default function AgentDashboard() {
   }).length;
 
   const currentPlan = orgDoc?.plan ?? "free";
-  const limits = orgDoc?.limits ?? { maxAgents: 1, maxCustomers: 25, maxCollectionsPerMonth: 250 };
-  const activeAgentsCount = agents.filter((a: any) => a.status === "ACTIVE").length;
-  const activeCustomersCount = customers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length;
+  const isEnterprise = currentPlan === "enterprise";
+
+  // Safe limits — enterprise uses -1 (unlimited), all others enforce positive defaults
+  const PLAN_DEFAULTS: Record<string, { maxAgents: number; maxCustomers: number; maxCollectionsPerMonth: number }> = {
+    free:       { maxAgents: 1,  maxCustomers: 25,   maxCollectionsPerMonth: 250   },
+    starter:    { maxAgents: 5,  maxCustomers: 100,  maxCollectionsPerMonth: 1000  },
+    growth:     { maxAgents: 25, maxCustomers: 1000, maxCollectionsPerMonth: 10000 },
+    enterprise: { maxAgents: -1, maxCustomers: -1,   maxCollectionsPerMonth: -1    },
+  };
+  const planDefaults = PLAN_DEFAULTS[currentPlan] ?? PLAN_DEFAULTS.free;
+  const rawLimits = orgDoc?.limits;
+  const limits = {
+    maxAgents:             isEnterprise ? -1 : Math.max(rawLimits?.maxAgents             || planDefaults.maxAgents,             1),
+    maxCustomers:          isEnterprise ? -1 : Math.max(rawLimits?.maxCustomers          || planDefaults.maxCustomers,          1),
+    maxCollectionsPerMonth:isEnterprise ? -1 : Math.max(rawLimits?.maxCollectionsPerMonth|| planDefaults.maxCollectionsPerMonth, 1),
+  };
+
+  // Auto-patch org docs that are missing or have broken limits
+  useEffect(() => {
+    if (!orgDoc || !organization?.id || isEnterprise) return;
+    const l = orgDoc.limits;
+    const broken = !l || (l.maxAgents ?? 0) < 1 || (l.maxCustomers ?? 0) < 1;
+    if (broken) {
+      updateDoc(doc(db, "organizations", organization.id), { limits: planDefaults })
+        .catch(() => undefined);
+    }
+  }, [orgDoc, organization?.id]);
+
+  const activeAgentsCount    = Math.max(agents.filter((a: any) => a.status === "ACTIVE").length, 0);
+  const activeCustomersCount = Math.max(customers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length, 0);
 
   const usageData = {
     plan: PLAN_NAMES[currentPlan] ?? currentPlan,
-    agents: { used: activeAgentsCount, max: limits.maxAgents },
-    customers: { used: activeCustomersCount, max: limits.maxCustomers },
-    collections: { used: collectionsThisMonth, max: limits.maxCollectionsPerMonth },
+    agents:      { used: activeAgentsCount,    max: limits.maxAgents             },
+    customers:   { used: activeCustomersCount, max: limits.maxCustomers          },
+    collections: { used: collectionsThisMonth, max: limits.maxCollectionsPerMonth},
   };
 
   if (!isUserLoaded || !isOrgLoaded) {

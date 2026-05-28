@@ -49,11 +49,12 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const activeCollectorName = collectorName || user?.fullName || "Collector";
   const activeCollectorId = collectorId || user?.id || "";
 
-  // Plan limits from org doc
+  // Plan limits from org doc — always positive; enterprise = -1 (unlimited)
   const currentPlan = orgDoc?.plan ?? "free";
-  const maxCustomers: number = orgDoc?.limits?.maxCustomers ?? 25;
-  const activeCustomerCount = allCustomers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length;
-  const atLimit = activeCustomerCount >= maxCustomers;
+  const isEnterprise = currentPlan === "enterprise";
+  const maxCustomers: number = isEnterprise ? -1 : Math.max(orgDoc?.limits?.maxCustomers || 25, 1);
+  const activeCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length, 0);
+  const atLimit = maxCustomers !== -1 && activeCustomerCount >= maxCustomers;
 
   const myCustomers = users.filter(u => u.role === "customer" && u.agentId === agentId &&
     (u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
