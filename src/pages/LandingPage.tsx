@@ -150,10 +150,7 @@ function LandingNavbar({
     >
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
         <button onClick={() => scrollTo("hero")} className="flex items-center focus:outline-none">
-          <BrandMark
-            className="text-2xl font-extrabold"
-            fundClassName={scrolled ? "text-white" : "text-slate-900"}
-          />
+          <BrandMark />
         </button>
 
         <nav className="hidden md:flex items-center gap-1">

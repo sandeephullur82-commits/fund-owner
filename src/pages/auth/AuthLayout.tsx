@@ -15,7 +15,7 @@ export default function AuthLayout({ children, maxWidth = "max-w-[440px]" }: Aut
 
       <div className={`relative z-10 w-full ${maxWidth}`}>
         <div className="mb-8 flex justify-center">
-          <BrandLogo size="lg" variant="dark" subtitle />
+          <BrandLogo size="lg" />
         </div>
         {children}
       </div>

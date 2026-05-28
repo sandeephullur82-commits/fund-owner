@@ -395,7 +395,7 @@ export default function OwnerOnboarding() {
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex flex-col">
-              <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+              <BrandMark />
               <p className="text-xs text-slate-400 font-medium mt-0.5">Organization Setup</p>
             </div>
             {/* Step Indicator */}
@@ -676,9 +676,7 @@ export default function OwnerOnboarding() {
 
               {/* Selected plan summary */}
               <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-4">
-                <div className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm">
-                  <BrandMark className="text-xs font-black leading-none" fundClassName="text-slate-900" />
-                </div>
+                <BrandMark size="xs" className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-900">{orgName}</p>
                   <p className="text-xs text-slate-500">{plan.name} Plan · Monthly billing</p>

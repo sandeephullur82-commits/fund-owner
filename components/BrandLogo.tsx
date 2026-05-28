@@ -1,69 +1,60 @@
 import React from "react";
 
-const CIRCLE_GRADIENT: React.CSSProperties = {
-  background: "linear-gradient(90deg, #00d4ff 0%, #3b82f6 45%, #7c3aed 75%, #d946ef 100%)",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  backgroundClip: "text",
-};
-
 /**
- * Inline brand mark: "Fund" + gradient "Circle"
- * Use this in navbars, sidebars, compact headers.
+ * BrandMark — compact logo for light-background surfaces (sidebars, navbars, headers).
+ * Wraps the full logo image in a dark rounded pill so the white text stays visible.
  */
 export function BrandMark({
-  className = "text-xl font-extrabold",
-  fundClassName = "text-white",
+  size = "md",
+  className = "",
 }: {
+  size?: "xs" | "sm" | "md" | "lg";
   className?: string;
-  fundClassName?: string;
 }) {
+  const heights: Record<string, string> = {
+    xs: "h-5",
+    sm: "h-7",
+    md: "h-9",
+    lg: "h-11",
+  };
   return (
-    <span className={`tracking-tight leading-none ${className}`}>
-      <span className={fundClassName}>Fund</span>
-      <span style={CIRCLE_GRADIENT}>Circle</span>
-    </span>
+    <div
+      className={`inline-flex items-center shrink-0 bg-[#0d1225] rounded-xl px-3 py-1.5 shadow-sm ${className}`}
+    >
+      <img
+        src="/fundcircle-logo-full.png"
+        alt="FundCircle"
+        className={`${heights[size]} w-auto object-contain`}
+        draggable={false}
+      />
+    </div>
   );
 }
 
 /**
- * Full brand block: large "FundCircle" + optional subtitle.
- * Use this in auth pages, onboarding, and invite pages.
+ * BrandLogo — full-size logo for dark-background pages (auth, splash, onboarding).
+ * Renders the image directly without a wrapper — the page itself provides the dark bg.
  */
 interface BrandLogoProps {
   size?: "sm" | "md" | "lg";
-  /** "dark" = white "Fund" (for dark backgrounds). "light" = slate "Fund" */
-  variant?: "dark" | "light";
-  subtitle?: boolean;
   className?: string;
 }
 
-const sizeMap = {
-  sm: { logo: "text-3xl font-black",  sub: "text-[10px] tracking-[5px]" },
-  md: { logo: "text-4xl font-black",  sub: "text-xs tracking-[5px]" },
-  lg: { logo: "text-5xl font-black",  sub: "text-sm tracking-[6px]" },
+const logoHeights: Record<string, string> = {
+  sm: "h-14",
+  md: "h-20",
+  lg: "h-28",
 };
 
-export default function BrandLogo({
-  size = "md",
-  variant = "dark",
-  subtitle = false,
-  className = "",
-}: BrandLogoProps) {
-  const s = sizeMap[size];
-  const fundColor = variant === "dark" ? "text-white" : "text-slate-900";
-
+export default function BrandLogo({ size = "md", className = "" }: BrandLogoProps) {
   return (
-    <div className={`flex flex-col items-center gap-1 ${className}`}>
-      <div className={`${s.logo} leading-none tracking-tight`}>
-        <span className={fundColor}>Fund</span>
-        <span style={CIRCLE_GRADIENT}>Circle</span>
-      </div>
-      {subtitle && (
-        <p className={`${s.sub} uppercase font-medium text-white/55 mt-1`}>
-          Enterprise Collection Platform
-        </p>
-      )}
+    <div className={`flex justify-center ${className}`}>
+      <img
+        src="/fundcircle-logo-full.png"
+        alt="FundCircle"
+        className={`${logoHeights[size]} w-auto object-contain`}
+        draggable={false}
+      />
     </div>
   );
 }

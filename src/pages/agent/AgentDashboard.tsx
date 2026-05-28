@@ -68,7 +68,7 @@ export default function AgentDashboard() {
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2">
-          <BrandMark className="text-base font-extrabold" fundClassName="text-slate-900" />
+          <BrandMark size="sm" />
         </div>
         <Sheet>
           <SheetTrigger render={
@@ -123,7 +123,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="px-5 py-4 border-b border-slate-100 shrink-0">
-        <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+        <BrandMark />
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 mt-0.5">Collector Portal</p>
       </div>
 

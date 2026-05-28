@@ -60,7 +60,7 @@ export default function OrgInvitation() {
       <div className="w-full max-w-lg space-y-6">
         <div className="flex justify-between items-center px-1">
           <Link to="/" className="flex items-center gap-1">
-            <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+            <BrandMark />
           </Link>
           <div className="text-xs font-bold text-slate-400 text-right">Organization Invitations</div>
         </div>

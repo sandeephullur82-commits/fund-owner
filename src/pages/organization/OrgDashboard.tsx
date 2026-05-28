@@ -139,7 +139,7 @@ export default function OrgDashboard() {
       <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BrandMark className="text-base font-extrabold" fundClassName="text-slate-900" />
+            <BrandMark size="sm" />
             <span className="text-slate-300 font-light">·</span>
             <span className="font-semibold text-slate-700 truncate max-w-[130px]">{orgName}</span>
           </div>
@@ -272,7 +272,7 @@ function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, isO
   return (
     <div className="flex flex-col h-full">
       <div className="px-5 py-4 border-b border-slate-100">
-        <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+        <BrandMark />
         <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{orgName}</p>
       </div>
 

@@ -107,7 +107,7 @@ export default function CustomerDashboard() {
       <div className="min-h-screen bg-slate-50 flex flex-col pb-16">
         <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
           <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            <BrandMark className="text-lg font-extrabold" fundClassName="text-slate-900" />
+            <BrandMark size="sm" />
             <div className="flex items-center gap-3">
               <div className="flex gap-1 bg-slate-100 p-1 rounded-full text-xs">
                 <button className={`px-2.5 py-1 rounded-full font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`} onClick={() => setLanguage('en')}>EN</button>
