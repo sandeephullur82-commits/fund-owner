@@ -21,7 +21,10 @@ export default function OrgOverview() {
   }
 
   const customers = members.filter((u) => u.role === "CUSTOMER" || u.role === "customer");
-  const agents = members.filter((u) => u.role === "AGENT" || u.role === "agent");
+  const allCollectors = members.filter((u) => u.role === "AGENT" || u.role === "agent");
+  const agents = allCollectors;
+  const activeCollectorCount = allCollectors.filter((a: any) => a.status === "ACTIVE").length;
+  const invitedCollectorCount = allCollectors.filter((a: any) => a.status === "INVITED" || a.status === "PENDING").length;
 
   // Calculate today's collections
   const today = new Date();
@@ -62,7 +65,11 @@ export default function OrgOverview() {
           title="Total Customers" 
           value={customers.length.toString()} 
           icon={<Users className="w-5 h-5 text-blue-600" />}
-          trend={`${agents.length} Active Agents`}
+          trend={
+            invitedCollectorCount > 0
+              ? `Active: ${activeCollectorCount} · Invited: ${invitedCollectorCount}`
+              : `${activeCollectorCount} Active Collector${activeCollectorCount !== 1 ? "s" : ""}`
+          }
           bg="bg-blue-50"
         />
         <MetricCard 
@@ -107,7 +114,7 @@ export default function OrgOverview() {
                     <div key={col.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                       <div className="flex flex-col">
                         <span className="font-medium text-slate-900">{customer?.name || "Unknown Customer"}</span>
-                        <span className="text-xs text-slate-500">Agent: {agent?.name || "Unknown"} • {d ? format(d, 'PP p') : ''}</span>
+                        <span className="text-xs text-slate-500">Collector: {agent?.fullName || agent?.name || "Unknown"} • {d ? format(d, 'PP p') : ''}</span>
                       </div>
                       <div className="font-bold text-emerald-600">
                         +₹{col.amount}
@@ -126,7 +133,7 @@ export default function OrgOverview() {
           </CardHeader>
           <CardContent className="space-y-2">
              <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium border border-blue-100 text-center cursor-pointer hover:bg-blue-100 transition-colors">
-               Add New Agent
+               Add New Collector
              </div>
              <div className="p-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium border border-emerald-100 text-center cursor-pointer hover:bg-emerald-100 transition-colors">
                Add New Customer

@@ -62,7 +62,7 @@ export default function OrgDashboard() {
   const adminMenuItems = [
     { id: "overview", label: "Dashboard", icon: LayoutDashboard },
     { id: "customers", label: "Customers", icon: Users },
-    { id: "agents", label: "Agents", icon: Users },
+    { id: "agents", label: "Collectors", icon: Users },
     { id: "collections", label: "Collections", icon: Wallet },
     { id: "loans", label: "Loans & EMI", icon: CreditCard },
     { id: "reports", label: "Reports", icon: FileText },

@@ -575,6 +575,9 @@ export async function sendOrganizationInvitation(options: {
   clerkRole: "org:pigmy_collector" | "org:customer" | "org:owner";
   invitedBy: string;
   invitedByEmail: string;
+  fullName?: string;
+  phone?: string;
+  notes?: string;
   assignedArea?: string;
   agentId?: string;
   assignedAgentId?: string;
@@ -588,6 +591,9 @@ export async function sendOrganizationInvitation(options: {
     clerkRole,
     invitedBy,
     invitedByEmail,
+    fullName,
+    phone,
+    notes,
     assignedArea,
     agentId,
     assignedAgentId,
@@ -647,6 +653,9 @@ export async function sendOrganizationInvitation(options: {
       organizationId,
       clerkOrganizationId: organization.id,
       organizationName: organization.name || "",
+      fullName: fullName?.trim() || "",
+      phone: phone?.trim() || "",
+      notes: notes?.trim() || "",
       assignedArea: assignedArea || "",
       agentId: agentId || assignedAgentId || "",
       assignedAgentId: assignedAgentId || "",
@@ -670,8 +679,10 @@ export async function sendOrganizationInvitation(options: {
       organizationName: organization.name || "",
       role: membershipRole,
       clerkUserId: "",
-      fullName: "",
-      phone: "",
+      fullName: fullName?.trim() || "",
+      name: fullName?.trim() || "",
+      phone: phone?.trim() || "",
+      notes: notes?.trim() || "",
       address: "",
       assignedArea: assignedArea || "",
       assignedAgentId: assignedAgentId || "",

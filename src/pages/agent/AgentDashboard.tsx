@@ -97,7 +97,7 @@ export default function AgentDashboard() {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600 mx-auto mb-4" />
-          <p className="text-slate-500 text-sm">Loading your agent console...</p>
+          <p className="text-slate-500 text-sm">Loading your collector console...</p>
         </div>
       </div>
     );
@@ -112,7 +112,7 @@ export default function AgentDashboard() {
         <div className="flex items-center gap-2.5">
           <img src="/fundcircle-logo.png" alt="FC" className="h-8 w-8 rounded-xl object-cover object-top shadow-md shrink-0" />
           <div>
-            <p className="text-xs font-semibold text-slate-900">Agent Portal</p>
+            <p className="text-xs font-semibold text-slate-900">Collector Portal</p>
             <p className="text-xs text-slate-400">{organization?.name}</p>
           </div>
         </div>
@@ -191,7 +191,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization, usageData }
         <div className="flex items-center gap-3">
           <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-md shrink-0" />
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Agent Portal</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Collector Portal</p>
             <p className="text-sm font-bold text-slate-900 truncate">{organization?.name || "FundCircle"}</p>
           </div>
         </div>
@@ -282,7 +282,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization, usageData }
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-slate-900 truncate">{user?.fullName || "Agent"}</p>
+            <p className="text-xs font-semibold text-slate-900 truncate">{user?.fullName || "Collector"}</p>
             <p className="text-xs text-slate-400 truncate">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
         </div>

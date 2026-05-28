@@ -77,7 +77,7 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
       await requestPlanUpgrade({
         organizationId: organization.id,
         agentId: user.id,
-        agentName: user.fullName || user.primaryEmailAddress?.emailAddress || "Agent",
+        agentName: user.fullName || user.primaryEmailAddress?.emailAddress || "Collector",
         currentPlan,
       });
       setUpgradeRequestSent(true);
@@ -115,7 +115,7 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
         invitedBy: user.id,
         invitedByEmail: user.primaryEmailAddress?.emailAddress || "",
         assignedAgentId: agentId,
-        assignedAgentName: user.fullName || "Agent",
+        assignedAgentName: user.fullName || "Collector",
       });
       toast.success(`Invitation sent to ${inviteEmail.trim()}`);
       setShowInvite(false);

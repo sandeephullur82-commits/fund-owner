@@ -129,7 +129,7 @@ export default function OrgCustomers() {
                   <Input id="cust-email" type="email" placeholder="customer@example.com" value={email} onChange={e => setEmail(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="cust-agent">Assigned Pigmy Collector <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="cust-agent">Assigned Collector <span className="text-red-500">*</span></Label>
                   <select
                     id="cust-agent"
                     value={selectedAgentId}
@@ -199,7 +199,7 @@ export default function OrgCustomers() {
                   <TableHead>Customer</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Assigned Agent</TableHead>
+                  <TableHead>Assigned Collector</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>

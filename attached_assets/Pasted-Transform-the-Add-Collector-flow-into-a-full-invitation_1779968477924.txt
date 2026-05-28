@@ -1,0 +1,94 @@
+Transform the “Add Collector” flow into a full invitation-based collector onboarding system identical to the existing agent invite architecture.
+
+CURRENT PROBLEM:
+The dashboard shows:
+“No active Pigmy Collector in this organization”
+
+But the Add Collector button does not behave like the agent invitation flow.
+
+REQUIRED FIX:
+
+1. Rename system consistently:
+- Agent → Collector
+- Agent Portal → Collector Portal
+- Assigned Agent → Assigned Collector
+- My Customers stays same
+
+2. Add Collector button must:
+- open invite modal
+- send collector invitation
+- create pending collector user
+- assign role = collector
+- save organizationId
+- generate invite token
+- send Clerk email invitation
+
+3. Collector onboarding flow:
+Owner
+→ Add Collector
+→ Collector receives email invite
+→ Collector creates password
+→ Collector profile setup
+→ Collector joins organization
+→ Collector dashboard activated
+
+4. Add Firestore collections:
+collectorInvites/{inviteId}
+collectors/{collectorId}
+
+5. Collector invite modal fields:
+- Full Name
+- Email
+- Phone
+- Assigned Area
+- Notes (optional)
+
+6. Add collector statuses:
+- invited
+- pending
+- active
+- suspended
+
+7. Customers cannot be invited unless:
+organization has at least 1 ACTIVE collector.
+
+8. Add collector activation checks:
+Only ACTIVE collectors:
+- can login
+- can collect money
+- can manage customers
+
+9. Fix dashboard counters:
+Do not show:
+0 active collectors
+if invited collectors exist.
+
+Instead show:
+Invited: X
+Active: X
+
+10. Add collector acceptance route:
+Accept invite
+→ create account
+→ setup profile
+→ activate collector
+→ redirect /dashboard/collector
+
+11. Add automatic organization membership sync:
+When collector accepts invite:
+- attach Clerk organization
+- attach Firestore org
+- attach collector role
+
+12. Add validation:
+- prevent duplicate collector emails
+- prevent collectors outside org
+- prevent invite reuse
+
+13. Add proper loading + success states:
+- invitation sending
+- collector activation
+- dashboard sync
+
+14. Final result:
+“Add Collector” must work exactly like a professional SaaS team invitation system.
