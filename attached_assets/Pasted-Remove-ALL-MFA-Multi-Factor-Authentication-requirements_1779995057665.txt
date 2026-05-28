@@ -1,0 +1,138 @@
+Remove ALL MFA (Multi-Factor Authentication) requirements from the entire FundCircle application and Clerk authentication flow.
+
+==================================================
+GOAL
+==================================================
+
+FundCircle should support ONLY:
+- email/password login
+- optional email OTP
+
+Remove:
+- authenticator app verification
+- two-factor authentication
+- MFA checks
+- second-factor screens
+- backup codes
+- MFA error handling
+
+==================================================
+CLERK DASHBOARD CONFIGURATION
+==================================================
+
+Disable completely:
+- Multi-factor authentication
+- Two-step verification
+- Authenticator application
+- Backup recovery codes
+- SMS MFA
+
+==================================================
+REMOVE MFA FROM AUTH FLOW
+==================================================
+
+Delete ALL logic related to:
+
+needs_second_factor
+attemptSecondFactor
+MFA verification
+OTP authenticator screens
+backup code screens
+second-factor routes
+
+==================================================
+LOGIN FLOW
+==================================================
+
+Use simple authentication only:
+
+STEP 1
+User enters:
+- email
+- password
+
+STEP 2
+Clerk validates credentials
+
+STEP 3
+Create session
+
+STEP 4
+Redirect directly to dashboard
+
+==================================================
+REMOVE MFA ERROR BLOCKS
+==================================================
+
+Delete error messages like:
+
+"Your account has MFA enabled"
+"Two-factor authentication required"
+"MFA verification needed"
+
+Replace with standard auth errors only.
+
+==================================================
+CLEAN AUTH UI
+==================================================
+
+Remove:
+- MFA forms
+- OTP authenticator input
+- second-step login pages
+- MFA warning banners
+
+Keep only:
+- login page
+- signup page
+- forgot password
+
+==================================================
+CLERK INSTANCE SETTINGS
+==================================================
+
+Ensure these are disabled:
+
+User & Authentication
+→ Multi-Factor
+→ OFF
+
+User & Authentication
+→ Two-step verification
+→ OFF
+
+==================================================
+REMOVE UNUSED CODE
+==================================================
+
+Delete:
+- MFA components
+- MFA routes
+- MFA hooks
+- MFA utilities
+- second-factor handlers
+
+==================================================
+SESSION FLOW
+==================================================
+
+After login:
+- create Clerk session
+- redirect instantly
+- no second verification step
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle authentication should become:
+- simple
+- fast
+- password-only
+- mobile friendly
+- no MFA interruptions
+- no second-factor checks
+
+Users should log in directly using only:
+- email
+- password
