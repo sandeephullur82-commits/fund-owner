@@ -7,6 +7,7 @@ import { Users, ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import { useLanguage } from "@/lib/languageContext";
 import { activatePendingInvite } from "@/lib/services";
 import { BrandMark } from "@/components/BrandLogo";
+import BackToHomeButton from "@/components/BackToHomeButton";
 
 export default function OrgInvitation() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -63,6 +64,9 @@ export default function OrgInvitation() {
             <BrandMark />
           </Link>
           <div className="text-xs font-bold text-slate-400 text-right">Organization Invitations</div>
+        </div>
+        <div>
+          <BackToHomeButton dark={false} />
         </div>
 
         <motion.div

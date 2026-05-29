@@ -3,7 +3,8 @@ import { useOrganizationList, useUser } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { Building2, Globe, ArrowRight, ArrowLeft, RefreshCw, Sparkles, Shield } from "lucide-react";
+import { Building2, Globe, ArrowRight, RefreshCw, Sparkles, Shield } from "lucide-react";
+import BackToHomeButton from "@/components/BackToHomeButton";
 import { useLanguage } from "@/lib/languageContext";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -126,6 +127,9 @@ export default function OrgCreate() {
             <span className="font-extrabold text-xl text-slate-900 tracking-tight">FundCircle</span>
           </Link>
           <div className="text-xs font-semibold text-slate-400">Pigmy Operator Setup</div>
+        </div>
+        <div>
+          <BackToHomeButton dark={false} />
         </div>
 
         {/* Central Setup Container */}

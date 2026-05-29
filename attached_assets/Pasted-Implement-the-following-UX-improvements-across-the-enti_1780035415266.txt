@@ -1,0 +1,138 @@
+Implement the following UX improvements across the entire FundCircle application.
+
+==================================================
+AUTO SCROLL TO TOP
+==================================================
+
+Problem:
+When navigating between pages, the browser sometimes preserves the previous scroll position.
+
+Required:
+
+Whenever a route changes:
+
+- Automatically scroll to top
+- Smooth behavior
+- Works on all pages
+- Works for dashboard routes
+- Works for auth pages
+- Works for landing pages
+- Works for mobile and desktop
+
+Implementation:
+
+Create a global ScrollToTop component.
+
+Behavior:
+
+On every pathname change:
+
+window.scrollTo({
+  top: 0,
+  left: 0,
+  behavior: "smooth"
+})
+
+Mount globally inside the router layout.
+
+==================================================
+AUTH PAGE NAVIGATION
+==================================================
+
+Add a "Back to FundCircle" button on:
+
+- Sign In page
+- Sign Up page
+- Forgot Password page
+- Verify Email page
+- Reset Password page
+- Invitation Acceptance page
+- Organization Creation page
+
+==================================================
+BUTTON DESIGN
+==================================================
+
+Placement:
+Top-left corner
+
+Icon:
+← Arrow Left
+
+Text:
+Back to FundCircle
+
+Route:
+/
+
+==================================================
+STYLE
+==================================================
+
+Dark theme compatible
+
+Button style:
+
+- Ghost button
+- Rounded full
+- Border
+- Hover effect
+- Cursor pointer
+- Mobile responsive
+
+Example:
+
+← Back to FundCircle
+
+==================================================
+MOBILE RESPONSIVE
+==================================================
+
+Desktop:
+Top-left of auth card
+
+Mobile:
+Top of page
+Full width available
+
+==================================================
+LANDING PAGE
+==================================================
+
+The button must always return users to:
+
+/
+
+(Home Page)
+
+==================================================
+ACCESSIBILITY
+==================================================
+
+Add:
+
+aria-label="Back to FundCircle"
+
+Keyboard accessible
+
+==================================================
+FINAL RESULT
+==================================================
+
+✓ Every route change scrolls to top automatically
+
+✓ Sign In page has Back to FundCircle button
+
+✓ Sign Up page has Back to FundCircle button
+
+✓ Forgot Password page has Back to FundCircle button
+
+✓ Verification pages have Back to FundCircle button
+
+✓ Invitation pages have Back to FundCircle button
+
+✓ Works on desktop
+
+✓ Works on mobile
+
+✓ Production-ready user experience

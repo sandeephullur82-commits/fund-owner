@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ClerkProvider, SignedIn, useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import AuthSyncService from "./components/FirestoreUserSync";
 import AuthRedirectManager from "./components/AuthRedirectManager";
+import ScrollToTop from "@/components/ScrollToTop";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { membershipIdFor } from "@/lib/services";
 import { getDashboardPath, normalizeClerkRole } from "@/lib/auth/get-user-role";
@@ -283,6 +284,7 @@ export default function App() {
   return (
     <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/auth/callback">
       <BrowserRouter>
+        <ScrollToTop />
         <AuthRedirectManager />
         <Routes>
           <Route path="/" element={<LandingPage />} />
