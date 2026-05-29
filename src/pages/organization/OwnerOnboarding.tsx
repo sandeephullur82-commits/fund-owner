@@ -108,15 +108,28 @@ export default function OwnerOnboarding() {
 
   const [step, setStep] = useState(0);
 
+  // success MUST be declared before the useEffect that references it
+  const [success, setSuccess] = useState(false);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // If user already has an org membership (and we're not mid-creation), send to dashboard
   React.useEffect(() => {
     if (!isLoaded) return;
-    if (success) return; // Don't redirect mid-creation flow
+    if (success) return; // Don't redirect mid-creation flow — org was just created
     if (userMemberships?.data?.length) {
-      console.log("[FC Onboarding] User already has org — redirecting to router");
-      navigate("/router", { replace: true });
+      const orgId = userMemberships.data[0].organization?.id;
+      console.log("[FC Onboarding] User already has org — redirecting to dashboard, org:", orgId);
+      navigate("/dashboard/owner", { replace: true, state: { orgId } });
     }
   }, [isLoaded, success, userMemberships?.data, navigate]);
+
+  // Cleanup timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   const [orgName, setOrgName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -131,10 +144,7 @@ export default function OwnerOnboarding() {
   const [cvv, setCvv] = useState("");
 
   const [processing, setProcessing] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
   const isFree = selectedPlan === "free";
@@ -232,7 +242,10 @@ export default function OwnerOnboarding() {
 
   const doNavigateToDashboard = (orgId: string) => {
     sessionStorage.setItem("fc_onboarding_org_id", orgId);
-    navigate("/router", { replace: true, state: { orgId } });
+    // Navigate directly to /dashboard/owner — avoids a Firestore re-read in RoleRouter
+    // that can timeout right after org creation. RoleProtectedRoute handles Clerk role fallback.
+    console.log("[FC Onboarding] Organization Created — redirecting to /dashboard/owner, org:", orgId);
+    navigate("/dashboard/owner", { replace: true, state: { orgId } });
   };
 
   const handleLaunchFree = async () => {

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { resolveUserRedirectTarget } from "@/lib/auth/redirect-user";
 import { Loader2 } from "lucide-react";
+
+const CALLBACK_TIMEOUT_MS = 5000;
 
 export default function AuthCallbackPage() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -11,31 +13,64 @@ export default function AuthCallbackPage() {
   const { isLoaded: orgListLoaded, setActive, userMemberships, userInvitations } = useOrganizationList({ userMemberships: true, userInvitations: true });
   const navigate = useNavigate();
   const [status, setStatus] = useState("Checking your session…");
+  const [timedOut, setTimedOut] = useState(false);
+  const redirectedRef = useRef(false);
+
+  // Hard timeout — if Firestore/Clerk takes >5s, fall back gracefully
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!redirectedRef.current) {
+        console.warn("[FC AuthCallback] Timeout — falling back to /router");
+        setTimedOut(true);
+      }
+    }, CALLBACK_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Timeout fallback: push to /router which has its own Clerk-level fallback
+  useEffect(() => {
+    if (!timedOut || redirectedRef.current) return;
+    redirectedRef.current = true;
+    toast.error("Taking longer than expected. Retrying…");
+    navigate("/router", { replace: true });
+  }, [timedOut, navigate]);
 
   useEffect(() => {
     if (!isLoaded || !orgListLoaded) return;
 
     const performRedirect = async () => {
       if (!isSignedIn || !user) {
+        console.log("[FC AuthCallback] Not signed in — redirecting to sign-in");
+        redirectedRef.current = true;
         navigate("/auth/sign-in", { replace: true });
         return;
       }
 
       setStatus("Preparing your workspace…");
+      console.log("[FC AuthCallback] User loaded:", user.id);
 
       try {
         if (!organization?.id && userMemberships?.data?.length && setActive) {
+          console.log("[FC AuthCallback] Activating first org:", userMemberships.data[0].organization.id);
           await setActive({ organization: userMemberships.data[0].organization.id });
         }
 
         const activeOrgId = organization?.id || userMemberships?.data?.[0]?.organization?.id || null;
+        console.log("[FC AuthCallback] Active org ID:", activeOrgId);
+
         const redirect = await resolveUserRedirectTarget(user, activeOrgId);
+        console.log("[FC AuthCallback] Redirect resolved:", redirect.path, "| role:", redirect.role, "| membership:", !!redirect.membership);
+
+        if (redirectedRef.current) return;
+        redirectedRef.current = true;
 
         if (!redirect.membership) {
           if (userInvitations?.data?.length) {
+            console.log("[FC AuthCallback] Pending invitation — redirecting to /organization/invitation");
             navigate("/organization/invitation", { replace: true });
             return;
           }
+          console.log("[FC AuthCallback] No org — redirecting to /onboarding");
           navigate("/onboarding", { replace: true });
           return;
         }
@@ -44,14 +79,18 @@ export default function AuthCallbackPage() {
           try {
             await setActive({ organization: redirect.organizationId });
           } catch {
+            // Non-fatal — org may already be active
           }
         }
 
+        console.log("[FC AuthCallback] Redirecting to:", redirect.path);
         navigate(redirect.path, { replace: true });
       } catch (error: any) {
-        console.error("Auth callback failed:", error);
+        console.error("[FC AuthCallback] Failed:", error);
+        if (redirectedRef.current) return;
+        redirectedRef.current = true;
         toast.error(error?.message || "Unable to finish authentication.");
-        navigate("/auth/sign-in", { replace: true });
+        navigate("/router", { replace: true });
       }
     };
 

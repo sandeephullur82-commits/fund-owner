@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { ClerkProvider, SignedIn, useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import AuthSyncService from "./components/FirestoreUserSync";
 import AuthRedirectManager from "./components/AuthRedirectManager";
@@ -34,6 +34,46 @@ import DebugUserDoc from "./components/DebugUserDoc";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
+// ─── Error Boundary ────────────────────────────────────────────────────────
+interface ErrorBoundaryState { hasError: boolean; error: Error | null }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("[FundCircle] ErrorBoundary caught:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="max-w-md w-full rounded-2xl border border-red-100 bg-white p-8 shadow-lg text-center">
+            <div className="mb-4 mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-red-50">
+              <span className="text-red-500 text-xl font-bold">!</span>
+            </div>
+            <h1 className="text-lg font-bold text-slate-900 mb-2">Something went wrong</h1>
+            <p className="text-sm text-slate-500 mb-6">
+              {this.state.error?.message || "An unexpected error occurred."}
+            </p>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); window.location.href = "/"; }}
+              className="rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold px-6 py-2.5 transition-colors"
+            >
+              Go to Home
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ─── Loading shimmer (shown while chunks or auth load) ─────────────────────
 function DashboardShimmer() {
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -97,12 +137,16 @@ function LoadingWorkspace({
   return <DashboardShimmer />;
 }
 
+// ─── ProtectedRoute: shows shimmer while Clerk loads; redirects if not signed in ──
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
   if (!isLoaded) return <DashboardShimmer />;
   if (!isSignedIn) return <Navigate to="/auth/sign-in" replace />;
   return <>{children}</>;
 }
+
+// ─── RoleProtectedRoute ────────────────────────────────────────────────────
+const ROLE_TIMEOUT_MS = 5000;
 
 function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]; children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -131,7 +175,10 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipId);
 
   useEffect(() => {
-    const timer = setTimeout(() => setTimedOut(true), 2000);
+    const timer = setTimeout(() => {
+      console.log("[FC RoleProtectedRoute] Firestore timeout — using Clerk role fallback");
+      setTimedOut(true);
+    }, ROLE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -139,7 +186,10 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   useEffect(() => {
     if (membershipDoc && user?.id) {
       const role = membershipDoc.clerkRole || membershipDoc.role || null;
-      if (role) setCached(`role_${user.id}`, role);
+      if (role) {
+        console.log("[FC RoleProtectedRoute] Role detected from Firestore:", role);
+        setCached(`role_${user.id}`, role);
+      }
     }
   }, [membershipDoc, user?.id]);
 
@@ -152,16 +202,17 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   if (!isSignedIn || !user) return <Navigate to="/auth/sign-in" replace />;
 
   if (!membershipDoc && timedOut && membershipId) {
-    // Try cached role first
     const cachedRole = getCached<string>(`role_${user.id}`);
     if (cachedRole) {
       const normalizedCached = normalizeClerkRole(cachedRole);
+      console.log("[FC RoleProtectedRoute] Using cached role:", cachedRole);
       if (allowedRoles.includes(normalizedCached!)) return <>{children}</>;
     }
     const clerkMembership = userMemberships?.data?.find(
       (m) => m.organization?.id === activeOrgId
     );
     const clerkRole = clerkMembership?.role;
+    console.log("[FC RoleProtectedRoute] Clerk role fallback:", clerkRole);
     if (clerkRole === "org:admin" && allowedRoles.includes("organization_owner")) {
       return <>{children}</>;
     }
@@ -176,11 +227,13 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   if (!membershipDoc) return <Navigate to="/router" replace />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
+  console.log("[FC RoleProtectedRoute] Normalized role:", normalizedRole, "allowed:", allowedRoles);
   if (!allowedRoles.includes(normalizedRole)) return <Navigate to="/router" replace />;
 
   return <>{children}</>;
 }
 
+// ─── RoleRouter ────────────────────────────────────────────────────────────
 function RoleRouter() {
   const { user } = useUser();
   const { organization } = useOrganization();
@@ -208,7 +261,10 @@ function RoleRouter() {
   }, [user, isOrgListLoaded, organization?.id, userMemberships?.data, setActive]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setTimedOut(true), 2000);
+    const timer = setTimeout(() => {
+      console.log("[FC RoleRouter] Firestore timeout — using Clerk role fallback");
+      setTimedOut(true);
+    }, ROLE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -216,18 +272,23 @@ function RoleRouter() {
   useEffect(() => {
     if (membershipDoc && user?.id) {
       const role = membershipDoc.clerkRole || membershipDoc.role || null;
-      if (role) setCached(`role_${user.id}`, role);
+      if (role) {
+        console.log("[FC RoleRouter] Role detected from Firestore:", role);
+        setCached(`role_${user.id}`, role);
+      }
     }
   }, [membershipDoc, user?.id]);
 
   if (!user) return <Navigate to="/auth/sign-in" replace />;
 
-  // Instant redirect using cached role
+  // Instant redirect using cached role (avoids Firestore wait on repeat visits)
   if (user && !membershipDoc && !membershipDocLoading) {
     const cachedRole = getCached<string>(`role_${user.id}`);
     if (cachedRole) {
       const normalizedRole = normalizeClerkRole(cachedRole);
-      return <Navigate to={getDashboardPath(normalizedRole)} replace />;
+      const dashPath = getDashboardPath(normalizedRole);
+      console.log("[FC RoleRouter] Cached role redirect:", cachedRole, "→", dashPath);
+      return <Navigate to={dashPath} replace />;
     }
   }
 
@@ -238,20 +299,25 @@ function RoleRouter() {
 
   if (membershipDoc) {
     const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
+    const dashPath = getDashboardPath(normalizedRole);
     const profileCompleted = membershipDoc.profileCompleted !== false;
+    console.log("[FC RoleRouter] Role detected:", normalizedRole, "→", dashPath);
     if (!profileCompleted && (normalizedRole === "pigmy_collector" || normalizedRole === "customer")) {
       return <Navigate to="/complete-profile" replace />;
     }
     sessionStorage.removeItem("fc_onboarding_org_id");
-    return <Navigate to={getDashboardPath(normalizedRole)} replace />;
+    return <Navigate to={dashPath} replace />;
   }
 
+  // Clerk-level membership fallback (Firestore timed out)
   if (isOrgListLoaded && userMemberships?.data?.length) {
     const firstMembership = userMemberships.data[0];
     const clerkRole = firstMembership.role;
     const orgId = firstMembership.organization?.id || navOrgId;
+    console.log("[FC RoleRouter] Clerk role fallback:", clerkRole, "orgId:", orgId);
 
     if (clerkRole === "org:admin" && orgId) {
+      console.log("[FC RoleRouter] Redirecting to /dashboard/owner");
       return <Navigate to="/dashboard/owner" replace state={{ orgId }} />;
     }
 
@@ -265,10 +331,16 @@ function RoleRouter() {
     );
   }
 
-  if (userInvitations?.data?.length) return <Navigate to="/organization/invitation" replace />;
+  if (userInvitations?.data?.length) {
+    console.log("[FC RoleRouter] Pending invitations found — redirecting");
+    return <Navigate to="/organization/invitation" replace />;
+  }
+
+  console.log("[FC RoleRouter] No org/invitations — redirecting to /onboarding");
   return <Navigate to="/onboarding" replace />;
 }
 
+// ─── App ───────────────────────────────────────────────────────────────────
 export default function App() {
   if (!clerkPubKey) {
     return (
@@ -282,54 +354,65 @@ export default function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/auth/callback">
-      <BrowserRouter>
-        <ScrollToTop />
-        <AuthRedirectManager />
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
+    <ErrorBoundary>
+      <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/auth/callback">
+        <BrowserRouter>
+          <ScrollToTop />
+          <AuthRedirectManager />
+          <Suspense fallback={<DashboardShimmer />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
 
-          <Route path="/auth/sign-in" element={<CustomSignInPage />} />
-          <Route path="/auth/sign-up" element={<CustomSignUpPage />} />
-          <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              {/* Auth pages */}
+              <Route path="/auth/sign-in" element={<CustomSignInPage />} />
+              <Route path="/auth/sign-up" element={<CustomSignUpPage />} />
+              <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
+              <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-          <Route path="/sign-in/*" element={<Navigate to="/auth/sign-in" replace />} />
-          <Route path="/sign-up/*" element={<Navigate to="/auth/sign-up" replace />} />
-          <Route path="/organization/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
-          <Route path="/organization/signup/*" element={<Navigate to="/auth/sign-up" replace />} />
-          <Route path="/agent/login/*" element={<Navigate to="/auth/sign-in" replace />} />
-          <Route path="/customer/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+              {/* Legacy sign-in redirects */}
+              <Route path="/sign-in/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/sign-up/*" element={<Navigate to="/auth/sign-up" replace />} />
+              <Route path="/organization/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/organization/signup/*" element={<Navigate to="/auth/sign-up" replace />} />
+              <Route path="/agent/login/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/customer/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
 
-          <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
+              <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
 
-          <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />
-          <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
-          <Route path="/auth/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
+              {/* Protected pages — use ProtectedRoute (shows shimmer, not blank) */}
+              <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />
+              <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
+              <Route path="/auth/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
 
-          <Route path="/organization/create" element={<SignedIn><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgCreate /></RoleProtectedRoute></SignedIn>} />
-          <Route path="/organization/invitation" element={<ProtectedRoute><OrgInvitation /></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
-          <Route path="/router" element={<SignedIn><RoleRouter /></SignedIn>} />
+              <Route path="/organization/create" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgCreate /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/organization/invitation" element={<ProtectedRoute><OrgInvitation /></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
 
-          <Route path="/dashboard/owner/*" element={<SignedIn><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgDashboard /></RoleProtectedRoute></SignedIn>} />
-          <Route path="/dashboard/agent/*" element={<SignedIn><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></SignedIn>} />
-          <Route path="/dashboard/customer/*" element={<SignedIn><RoleProtectedRoute allowedRoles={["customer"]}><CustomerDashboard /></RoleProtectedRoute></SignedIn>} />
-          <Route path="/dashboard/operator/*" element={<Navigate to="/dashboard/owner" replace />} />
-          <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
-          <Route path="/dashboard/*" element={<Navigate to="/router" replace />} />
+              {/* Role router — ProtectedRoute prevents blank-page flash during session propagation */}
+              <Route path="/router" element={<ProtectedRoute><RoleRouter /></ProtectedRoute>} />
 
-          <Route path="/debug-user" element={<SignedIn><ProtectedRoute><DebugUserDoc /></ProtectedRoute></SignedIn>} />
+              {/* Dashboards */}
+              <Route path="/dashboard/owner/*" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/agent/*" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/customer/*" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["customer"]}><CustomerDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/operator/*" element={<Navigate to="/dashboard/owner" replace />} />
+              <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
+              {/* Fallback: unknown /dashboard/* → router to re-detect role */}
+              <Route path="/dashboard/*" element={<Navigate to="/router" replace />} />
 
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </BrowserRouter>
-      <SignedIn><AuthSyncService /></SignedIn>
-      <Toaster />
-      <OfflineToast />
-      <PWAInstallPrompt />
-    </ClerkProvider>
+              <Route path="/debug-user" element={<ProtectedRoute><DebugUserDoc /></ProtectedRoute>} />
+
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+        <SignedIn><AuthSyncService /></SignedIn>
+        <Toaster />
+        <OfflineToast />
+        <PWAInstallPrompt />
+      </ClerkProvider>
+    </ErrorBoundary>
   );
 }

@@ -26,9 +26,11 @@ export default function VerifyEmailPage() {
   useEffect(() => {
     if (!isLoaded) return;
     if (signUp?.status === "complete" && signUp.createdSessionId && setActive) {
-      setActive({ session: signUp.createdSessionId }).then(() =>
-        navigate("/router", { replace: true })
-      );
+      console.log("[FC VerifyEmail] Already complete — activating session");
+      setActive({ session: signUp.createdSessionId }).then(() => {
+        console.log("[FC VerifyEmail] Session active — redirecting to /auth/callback");
+        navigate("/auth/callback", { replace: true });
+      });
     }
     if (!signUp || (signUp.status !== "missing_requirements" && signUp.status !== null)) {
       if (isLoaded && !signUp?.id) {
@@ -78,11 +80,16 @@ export default function VerifyEmailPage() {
     setError("");
     setLoading(true);
     try {
+      console.log("[FC VerifyEmail] Attempting verification…");
       const result = await signUp.attemptEmailAddressVerification({ code });
       if (result.status === "complete") {
+        console.log("[FC VerifyEmail] Verification success — activating session");
         await setActive({ session: result.createdSessionId });
         sessionStorage.removeItem("fc_signup_email");
-        navigate("/router", { replace: true });
+        console.log("[FC VerifyEmail] Session active — redirecting to /auth/callback");
+        // Navigate to /auth/callback which properly resolves the role and redirects
+        // (avoids blank-screen flash from <SignedIn> race condition on /router)
+        navigate("/auth/callback", { replace: true });
       } else {
         setError("Verification incomplete. Please try again.");
       }
