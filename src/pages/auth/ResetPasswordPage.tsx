@@ -96,30 +96,17 @@ export default function ResetPasswordPage() {
         code,
         password: newPassword,
       });
-      const status          = result.status as string;
-      const createdSessionId = result.createdSessionId;
-      const clientTrustState = (result as any).clientTrustState ?? null;
-      console.log("[FC ResetPassword] attemptFirstFactor result:");
-      console.log("[FC ResetPassword]   status          :", status);
-      console.log("[FC ResetPassword]   createdSessionId:", createdSessionId ?? "null");
-      console.log("[FC ResetPassword]   clientTrustState:", clientTrustState ?? "null");
+      const status = result.status as string;
+      console.log("[FC ResetPassword] attemptFirstFactor — status:", status, "| sessionId:", result.createdSessionId ?? "null");
       if (status === "complete") {
-        if (createdSessionId) {
-          await setActive({ session: createdSessionId });
+        if (result.createdSessionId) {
+          await setActive({ session: result.createdSessionId });
         } else {
-          console.warn("[FC ResetPassword] status=complete, createdSessionId=null — session already active");
+          console.warn("[FC ResetPassword] status=complete, sessionId=null — session already active");
         }
         sessionStorage.removeItem("fc_reset_email");
         toast.success("Password updated successfully!");
         navigate("/router", { replace: true });
-      } else if (status === "needs_client_trust") {
-        console.warn("[FC ResetPassword] needs_client_trust — clientTrustState:", clientTrustState);
-        if (createdSessionId) {
-          await setActive({ session: createdSessionId });
-          navigate("/router", { replace: true });
-        } else {
-          setError("Device verification required. Please check your email for a verification link, then try again.");
-        }
       } else if (status === "needs_second_factor") {
         console.warn("[FC ResetPassword] MFA detected — signing out");
         try { await clerk.signOut(); } catch { /* ignore */ }

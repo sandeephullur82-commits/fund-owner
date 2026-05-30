@@ -511,15 +511,15 @@ export default function App() {
               {/* Role router — ProtectedRoute prevents blank-page flash during session propagation */}
               <Route path="/router" element={<ProtectedRoute><RoleRouter /></ProtectedRoute>} />
 
-              {/* Dashboards — canonical paths */}
+              {/* Dashboards */}
               <Route path="/dashboard/owner/*"     element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgDashboard /></RoleProtectedRoute></ProtectedRoute>} />
-              <Route path="/dashboard/collector/*" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/agent/*"     element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></ProtectedRoute>} />
               <Route path="/dashboard/customer/*"  element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["customer"]}><CustomerDashboard /></RoleProtectedRoute></ProtectedRoute>} />
-              {/* Legacy aliases → canonical paths */}
-              <Route path="/dashboard/agent/*"     element={<Navigate to="/dashboard/collector" replace />} />
-              <Route path="/dashboard/operator/*"  element={<Navigate to="/dashboard/owner"     replace />} />
+              {/* Aliases → canonical paths */}
+              <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent"  replace />} />
+              <Route path="/dashboard/operator/*"  element={<Navigate to="/dashboard/owner"  replace />} />
               {/* Fallback: unknown /dashboard/* → router to re-detect role */}
-              <Route path="/dashboard/*"           element={<Navigate to="/router"              replace />} />
+              <Route path="/dashboard/*"           element={<Navigate to="/router"           replace />} />
 
               <Route path="/debug-user" element={<ProtectedRoute><DebugUserDoc /></ProtectedRoute>} />
 
