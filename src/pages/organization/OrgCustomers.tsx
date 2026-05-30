@@ -116,10 +116,25 @@ export default function OrgCustomers() {
     }
 
     const emailKey = email.trim().toLowerCase();
+
+    console.log("════════════════════════════════════════════════");
+    console.log("[FC STEP 1] ▶ Customer invitation creation");
+    console.log("[FC STEP 1]   organizationId    :", organization.id);
+    console.log("[FC STEP 1]   organizationName  :", organization.name ?? "—");
+    console.log("[FC STEP 1]   invitedBy (userId):", user.id);
+    console.log("[FC STEP 1]   email             :", emailKey);
+    console.log("[FC STEP 1]   assignedCollector :", collectorToAssign.id, "|", collectorToAssign.fullName ?? (collectorToAssign as any).name ?? "—");
+    console.log("[FC STEP 1]   clerkRole         : org:customer");
+    console.log("════════════════════════════════════════════════");
+
+    // ── Validate ────────────────────────────────────────────────────────────
+    console.log("[FC STEP 1] Validating customer invite…");
     setIsValidating(true);
     try {
       await validateCustomerInvite(organization.id, emailKey, "");
+      console.log("[FC STEP 1] ✓ Validation passed");
     } catch (err) {
+      console.error("[FC STEP 1] ✗ Validation failed:", err instanceof Error ? err.message : err);
       toast.error(err instanceof Error ? err.message : "Validation failed");
       setIsValidating(false);
       return;
@@ -127,6 +142,8 @@ export default function OrgCustomers() {
       setIsValidating(false);
     }
 
+    // ── Send invitation ─────────────────────────────────────────────────────
+    console.log("[FC STEP 1] Sending invitation via sendOrganizationInvitation()…");
     setIsSubmitting(true);
     try {
       const invitedByEmail =
@@ -145,10 +162,14 @@ export default function OrgCustomers() {
         assignedAgentName:
           collectorToAssign.fullName || (collectorToAssign as any).name || "",
       });
+      console.log("[FC STEP 1] ✓ Invitation sent successfully:", result.message);
+      console.log("[FC STEP 1]   invitationId:", result.invitationId ?? "—");
+      console.log("[FC STEP 1]   Flow: customer will receive email → click link → STEP 2 (Clerk sign-up) → STEP 3 (password) → STEP 4 (verify) → STEP 5 (org accept) → STEP 6 (Firestore record)");
       toast.success(result.message);
       setIsInviteOpen(false);
       resetInviteForm();
     } catch (error) {
+      console.error("[FC STEP 1] ✗ sendOrganizationInvitation() failed:", error instanceof Error ? error.message : error);
       toast.error(
         error instanceof Error ? error.message : "Failed to send customer invitation"
       );

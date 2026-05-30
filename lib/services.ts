@@ -343,8 +343,21 @@ export async function reconcilePendingInviteMembership(
 }
 
 export async function activatePendingInvite(email: string, organizationId: string, clerkUserId: string, fullName?: string) {
+  console.log("════════════════════════════════════════════════");
+  console.log("[FC STEP 6] ▶ activatePendingInvite — linking Clerk user to Firestore records");
+  console.log("[FC STEP 6]   email        :", email.trim().toLowerCase());
+  console.log("[FC STEP 6]   organizationId:", organizationId);
+  console.log("[FC STEP 6]   clerkUserId  :", clerkUserId);
+  console.log("[FC STEP 6]   fullName     :", fullName ?? "(not provided)");
+  console.log("════════════════════════════════════════════════");
+
   const memberships = await reconcilePendingInviteMembership(email, organizationId, clerkUserId, fullName);
   if (!memberships.length) {
+    console.warn("[FC STEP 6] ✗ No pending invite found to reconcile");
+    console.warn("[FC STEP 6]   This means the customer's pendingInvite doc either:");
+    console.warn("[FC STEP 6]   • Was not created (STEP 1 failed)");
+    console.warn("[FC STEP 6]   • Email mismatch — check Clerk email vs pendingInvites.email");
+    console.warn("[FC STEP 6]   • Already reconciled in a previous session");
     console.log("activatePendingInvite: no active pending invite to reconcile");
     return memberships;
   }
@@ -657,7 +670,8 @@ export async function sendOrganizationInvitation(options: {
     throw new Error(err);
   }
 
-  // Step 2: Save to Firestore FIRST (creates invited org member and pending invite)
+  // Step 2 / [FC STEP 6]: Save to Firestore FIRST (creates invited org member and pending invite)
+  console.log("[FC STEP 6] ▶ Database customer record creation — writing pendingInvite + organizationMember + customer docs");
   console.log("sendOrganizationInvitation: saving to Firestore");
 
   let pendingInviteId: string;
@@ -748,7 +762,8 @@ export async function sendOrganizationInvitation(options: {
     throw new Error(`Failed to save invitation to database: ${(firestoreError as any).message}`);
   }
 
-  // Step 3: Send Clerk organization invitation
+  // Step 3 / [FC STEP 1 continued]: Send Clerk organization invitation email
+  console.log("[FC STEP 1] Sending Clerk org invitation email — role:", clerkRole, "| email:", emailKey);
   console.log("sendOrganizationInvitation: sending Clerk invitation", {
     organizationId: organization.id,
     emailAddress: emailKey,

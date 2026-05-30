@@ -10,47 +10,53 @@ export default function SignUpPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Clerk puts the invitation token here when the user clicks an invite link
   const invitationTicket = searchParams.get("__clerk_ticket") || "";
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [fullName, setFullName]             = useState("");
+  const [email, setEmail]                   = useState("");
+  const [password, setPassword]             = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [showPassword, setShowPassword]     = useState(false);
+  const [showConfirm, setShowConfirm]       = useState(false);
+  const [agreedToTerms, setAgreedToTerms]   = useState(false);
+  const [loading, setLoading]               = useState(false);
+  const [error, setError]                   = useState("");
 
-  // Redirect already-signed-in users
   useEffect(() => {
     if (userLoaded && isSignedIn) {
-      console.log("[FC SignUp] User already signed in — redirecting to /router");
+      console.log("[FC STEP 2] User already signed in — redirecting to /router");
       navigate("/router", { replace: true });
     }
   }, [userLoaded, isSignedIn, navigate]);
 
-  // If an invitation ticket is present, log it for debugging
   useEffect(() => {
+    if (!isLoaded) return;
     if (invitationTicket) {
-      console.log("[FC SignUp] Invitation ticket detected in URL:", invitationTicket.substring(0, 20) + "…");
+      console.log("════════════════════════════════════════════════");
+      console.log("[FC STEP 2] Invitation ticket detected in URL");
+      console.log("[FC STEP 2]   ticket prefix :", invitationTicket.substring(0, 20) + "…");
+      console.log("[FC STEP 2]   flow          : invitation sign-up (Email + Password via ticket)");
+      console.log("════════════════════════════════════════════════");
+    } else {
+      console.log("[FC STEP 2] Normal sign-up flow (no invitation ticket)");
     }
-  }, [invitationTicket]);
+  }, [isLoaded, invitationTicket]);
 
-  // If there's an existing incomplete signUp (e.g. from a previous attempt), handle it
   useEffect(() => {
     if (!isLoaded) return;
     if (signUp?.status === "complete" && signUp.createdSessionId && setActive) {
-      console.log("[FC SignUp] Already-complete signUp detected — activating session and redirecting");
+      console.log("[FC STEP 3] Already-complete signUp detected — activating session:", signUp.createdSessionId);
       setActive({ session: signUp.createdSessionId }).then(() => {
+        console.log("[FC STEP 3] Session activated — redirecting to /auth/callback");
         navigate("/auth/callback", { replace: true });
       });
       return;
     }
     if (signUp?.status === "missing_requirements" && signUp.id) {
-      console.log("[FC SignUp] Existing incomplete signUp detected (status: missing_requirements) — resuming email verification");
+      console.log("[FC STEP 3] Existing incomplete signUp (status: missing_requirements)");
+      console.log("[FC STEP 3]   unverifiedFields:", signUp.unverifiedFields);
       if (signUp.unverifiedFields?.includes("email_address")) {
+        console.log("[FC STEP 4] Email verification required — resuming at /auth/verify-email");
         sessionStorage.setItem("fc_signup_email", signUp.emailAddress || "");
         navigate("/auth/verify-email", { replace: true });
       }
@@ -62,14 +68,8 @@ export default function SignUpPage() {
     if (!isLoaded || !signUp || loading) return;
     setError("");
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
+    if (password.length < 8)           { setError("Password must be at least 8 characters."); return; }
     if (!invitationTicket && !agreedToTerms) {
       setError("Please accept the terms and conditions to continue.");
       return;
@@ -77,15 +77,22 @@ export default function SignUpPage() {
 
     const nameParts = fullName.trim().split(/\s+/);
     const firstName = nameParts[0] || "";
-    const lastName = nameParts.slice(1).join(" ") || "";
-
+    const lastName  = nameParts.slice(1).join(" ") || "";
     setLoading(true);
+
     try {
       if (invitationTicket) {
-        // ── Invitation flow ──────────────────────────────────────────────────
-        // Must pass the ticket so Clerk links the account to the organisation.
-        // Email is pre-filled by Clerk when the ticket is present.
-        console.log("[FC SignUp] Creating account via invitation ticket…");
+        // ── STEP 2: Clerk user creation via invitation ticket ────────────────
+        console.log("════════════════════════════════════════════════");
+        console.log("[FC STEP 2] ▶ Clerk user creation via invitation ticket");
+        console.log("[FC STEP 2]   firstName:", firstName || "(not provided)");
+        console.log("[FC STEP 2]   lastName :", lastName  || "(not provided)");
+        console.log("[FC STEP 2]   ticket   :", invitationTicket.substring(0, 20) + "…");
+        console.log("════════════════════════════════════════════════");
+
+        // ── STEP 3: Password setup ───────────────────────────────────────────
+        console.log("[FC STEP 3] ▶ Password setup — calling signUp.create({ strategy: 'ticket', password })…");
+
         const result = await signUp.create({
           strategy: "ticket",
           ticket: invitationTicket,
@@ -93,53 +100,70 @@ export default function SignUpPage() {
           firstName: firstName || undefined,
           lastName: lastName || undefined,
         });
-        console.log("[FC SignUp] signUp.create() (invitation) status:", result.status);
+
+        console.log("[FC STEP 3] signUp.create() (invitation) result:");
+        console.log("[FC STEP 3]   status           :", result.status);
+        console.log("[FC STEP 3]   createdSessionId :", result.createdSessionId ?? "null");
+        console.log("[FC STEP 3]   emailAddress     :", result.emailAddress ?? "—");
+        console.log("[FC STEP 3]   unverifiedFields :", result.unverifiedFields ?? []);
 
         if (result.status === "complete" && result.createdSessionId) {
-          console.log("[FC SignUp] Invitation sign-up complete — activating session:", result.createdSessionId);
+          console.log("[FC STEP 3] ✓ Password accepted — status=complete");
+          console.log("[FC STEP 8] ▶ Session creation — activating session:", result.createdSessionId);
           await setActive!({ session: result.createdSessionId });
+          console.log("[FC STEP 8] ✓ Session activated — redirecting to /auth/callback");
           sessionStorage.removeItem("fc_signup_email");
-          console.log("[FC SignUp] Invitation accepted — navigating to /auth/callback");
           navigate("/auth/callback", { replace: true });
           return;
         }
 
         if (result.status === "missing_requirements") {
-          console.log("[FC SignUp] Invitation sign-up needs email verification — unverified:", result.unverifiedFields);
+          console.log("[FC STEP 3] Password set — email verification still required");
+          console.log("[FC STEP 4] ▶ Email verification — unverified fields:", result.unverifiedFields);
           if (result.unverifiedFields?.includes("email_address")) {
             await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+            console.log("[FC STEP 4] Verification code sent — navigating to /auth/verify-email");
             sessionStorage.setItem("fc_signup_email", result.emailAddress || "");
             navigate("/auth/verify-email", { replace: true });
           }
           return;
         }
 
-        console.error("[FC SignUp] Unexpected invitation sign-up status:", result.status);
+        console.error("[FC STEP 3] ✗ Unexpected invitation sign-up status:", result.status);
         setError("Invitation sign-up returned an unexpected state. Please try again.");
         return;
       }
 
-      // ── Normal sign-up flow ────────────────────────────────────────────────
-      console.log("[FC SignUp] Creating account for:", email.trim().toLowerCase());
-      await signUp.create({
-        emailAddress: email.trim().toLowerCase(),
-        password,
-        firstName,
-        lastName,
-      });
-      console.log("[FC SignUp] signUp.create() done, status:", signUp.status);
-      console.log("[FC SignUp] Preparing email address verification…");
+      // ── STEP 2: Normal sign-up (no ticket) ────────────────────────────────
+      const emailKey = email.trim().toLowerCase();
+      console.log("════════════════════════════════════════════════");
+      console.log("[FC STEP 2] ▶ Clerk user creation (normal sign-up)");
+      console.log("[FC STEP 2]   email    :", emailKey);
+      console.log("[FC STEP 2]   firstName:", firstName || "(not provided)");
+      console.log("[FC STEP 2]   lastName :", lastName  || "(not provided)");
+      console.log("════════════════════════════════════════════════");
+
+      console.log("[FC STEP 3] ▶ Password setup — calling signUp.create({ emailAddress, password })…");
+      await signUp.create({ emailAddress: emailKey, password, firstName, lastName });
+
+      console.log("[FC STEP 3] signUp.create() done — status:", signUp.status);
+      console.log("[FC STEP 4] ▶ Email verification — sending OTP to:", emailKey);
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-      sessionStorage.setItem("fc_signup_email", email.trim().toLowerCase());
+      console.log("[FC STEP 4] OTP sent — navigating to /auth/verify-email");
+      sessionStorage.setItem("fc_signup_email", emailKey);
       navigate("/auth/verify-email", { replace: true });
 
     } catch (err: any) {
-      console.error("[FC SignUp] Exception during signUp.create():", err);
-      const msg =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        "Could not create account. Please try again.";
-      setError(msg);
+      const code = err?.errors?.[0]?.code ?? "unknown";
+      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? err?.message ?? "unknown";
+      console.error("════════════════════════════════════════════════");
+      console.error("[FC STEP 2/3] ✗ signUp.create() threw an exception");
+      console.error("[FC STEP 2/3]   error.code    :", code);
+      console.error("[FC STEP 2/3]   error.message :", msg);
+      console.error("[FC STEP 2/3]   error.errors  :", err?.errors ?? "none");
+      console.error("[FC STEP 2/3]   full error    :", err);
+      console.error("════════════════════════════════════════════════");
+      setError(msg || "Could not create account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -147,7 +171,6 @@ export default function SignUpPage() {
 
   const inputClass =
     "w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25";
-
   const labelClass = "block text-[11px] font-semibold uppercase tracking-wider text-white/95";
 
   return (
@@ -175,7 +198,6 @@ export default function SignUpPage() {
             </div>
           )}
 
-          {/* Name is always useful; in invitation flow it pre-fills from Clerk but let them confirm */}
           <div className="space-y-1.5">
             <label className={labelClass}>Full name</label>
             <input
@@ -189,7 +211,6 @@ export default function SignUpPage() {
             />
           </div>
 
-          {/* Email is only shown on regular sign-up; invitation ticket pre-fills it server-side */}
           {!invitationTicket && (
             <div className="space-y-1.5">
               <label className={labelClass}>Email address</label>
@@ -252,7 +273,6 @@ export default function SignUpPage() {
             </div>
           </div>
 
-          {/* Terms only shown for regular sign-up, not invitation flow */}
           {!invitationTicket && (
             <label className="flex cursor-pointer items-start gap-3 pt-1">
               <input
