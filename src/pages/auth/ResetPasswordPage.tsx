@@ -96,13 +96,32 @@ export default function ResetPasswordPage() {
         code,
         password: newPassword,
       });
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive({ session: result.createdSessionId });
+      const status          = result.status as string;
+      const createdSessionId = result.createdSessionId;
+      const clientTrustState = (result as any).clientTrustState ?? null;
+      console.log("[FC ResetPassword] attemptFirstFactor result:");
+      console.log("[FC ResetPassword]   status          :", status);
+      console.log("[FC ResetPassword]   createdSessionId:", createdSessionId ?? "null");
+      console.log("[FC ResetPassword]   clientTrustState:", clientTrustState ?? "null");
+      if (status === "complete") {
+        if (createdSessionId) {
+          await setActive({ session: createdSessionId });
+        } else {
+          console.warn("[FC ResetPassword] status=complete, createdSessionId=null — session already active");
+        }
         sessionStorage.removeItem("fc_reset_email");
         toast.success("Password updated successfully!");
         navigate("/router", { replace: true });
-      } else if (result.status === "needs_second_factor") {
-        console.warn("[FundCircle Reset] MFA detected — signing out partial session");
+      } else if (status === "needs_client_trust") {
+        console.warn("[FC ResetPassword] needs_client_trust — clientTrustState:", clientTrustState);
+        if (createdSessionId) {
+          await setActive({ session: createdSessionId });
+          navigate("/router", { replace: true });
+        } else {
+          setError("Device verification required. Please check your email for a verification link, then try again.");
+        }
+      } else if (status === "needs_second_factor") {
+        console.warn("[FC ResetPassword] MFA detected — signing out");
         try { await clerk.signOut(); } catch { /* ignore */ }
         setError(
           "Your account has multi-factor authentication (MFA) enabled. " +
@@ -110,6 +129,7 @@ export default function ResetPasswordPage() {
           "MFA in the Clerk dashboard under User Authentication → Multi-factor, then try again."
         );
       } else {
+        console.warn("[FC ResetPassword] Unexpected status:", status);
         setError("Could not complete password reset. Please try again.");
       }
     } catch (err: any) {

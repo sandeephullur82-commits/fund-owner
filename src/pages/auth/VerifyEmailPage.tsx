@@ -82,13 +82,33 @@ export default function VerifyEmailPage() {
     try {
       console.log("[FC VerifyEmail] Attempting verification…");
       const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === "complete") {
+      const status          = result.status as string;
+      const createdSessionId = result.createdSessionId;
+      const clientTrustState = (result as any).clientTrustState ?? null;
+      console.log("[FC VerifyEmail] attemptEmailAddressVerification result:");
+      console.log("[FC VerifyEmail]   status          :", status);
+      console.log("[FC VerifyEmail]   createdSessionId:", createdSessionId ?? "null");
+      console.log("[FC VerifyEmail]   clientTrustState:", clientTrustState ?? "null");
+      if (status === "complete") {
         console.log("[FC VerifyEmail] Verification success — activating session");
-        await setActive({ session: result.createdSessionId });
+        if (createdSessionId) {
+          await setActive({ session: createdSessionId });
+        } else {
+          console.warn("[FC VerifyEmail] status=complete but createdSessionId is null — session already active");
+        }
         sessionStorage.removeItem("fc_signup_email");
-        console.log("[FC VerifyEmail] Session active — redirecting to /auth/callback");
+        console.log("[FC VerifyEmail] → /auth/callback");
         navigate("/auth/callback", { replace: true });
+      } else if (status === "needs_client_trust") {
+        console.warn("[FC VerifyEmail] needs_client_trust — clientTrustState:", clientTrustState);
+        if (createdSessionId) {
+          await setActive({ session: createdSessionId });
+          navigate("/auth/callback", { replace: true });
+        } else {
+          setError("Device verification required. Please check your email for a verification link, then try again.");
+        }
       } else {
+        console.warn("[FC VerifyEmail] Unexpected status:", status);
         setError("Verification incomplete. Please try again.");
       }
     } catch (err: any) {
