@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Loader2, Mail, RefreshCw, Pencil } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
+const OTP_LENGTH = 6;
+
 function markOtpSent() {
   sessionStorage.setItem("fc_otp_sent_at", new Date().toISOString());
   sessionStorage.removeItem("fc_otp_verified_at");
@@ -17,53 +19,44 @@ export default function VerifyEmailPage() {
   const { isLoaded, signUp, setActive } = useSignUp();
   const navigate = useNavigate();
 
-  const [otp, setOtp]             = useState(["", "", "", "", "", ""]);
-  const [loading, setLoading]     = useState(false);
+  // ── Single string state: "780012" — index access otp[i] gives each digit ──
+  const [otp, setOtp]         = useState("");
+  const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [error, setError]         = useState("");
+  const [error, setError]     = useState("");
   const [countdown, setCountdown] = useState(30);
 
-  const inputRefs  = useRef<(HTMLInputElement | null)[]>([]);
-  const loadingRef    = useRef(false);
-  const verifyingRef  = useRef(false);       // atomic guard — set BEFORE async call
-  const email         = sessionStorage.getItem("fc_signup_email") || "";
+  const inputRefs   = useRef<(HTMLInputElement | null)[]>([]);
+  const verifyingRef = useRef(false);
+  const email        = sessionStorage.getItem("fc_signup_email") || "";
 
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  const allFilled = otp.length === OTP_LENGTH && [...otp].every(c => /\d/.test(c));
 
+  // ── Countdown timer ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (countdown > 0) {
-      const t = setTimeout(() => setCountdown(c => c - 1), 1000);
-      return () => clearTimeout(t);
-    }
+    if (countdown <= 0) return;
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
   }, [countdown]);
 
-  // Guard: ensure the user arrived here with an active signUp session and a
-  // successfully dispatched OTP. If either condition fails, send them back to
-  // sign-up with an explanatory error so they can try again cleanly.
+  // ── Guard: no active signUp session ──────────────────────────────────────
   useEffect(() => {
     if (!isLoaded) return;
 
-    // No Clerk signUp session at all — user navigated here directly.
     if (!signUp?.id) {
       console.warn("[FC Verify] No active signUp session — redirecting to /auth/sign-up");
       navigate("/auth/sign-up", { replace: true });
       return;
     }
 
-    // signUp session exists but OTP was never dispatched (fc_otp_request_count === 0).
-    // This happens when the resume-detection useEffect in SignUpPage was supposed to
-    // be suppressed but still fired — catch it here as a second line of defence.
     const otpCount = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0");
     if (otpCount === 0 && signUp.status === "missing_requirements") {
-      console.warn("[FC Verify] OTP not yet sent (request_count=0) — redirecting to /auth/sign-up with error");
+      console.warn("[FC Verify] OTP not yet sent — redirecting to /auth/sign-up");
       sessionStorage.setItem("fc_verify_error", "Verification code could not be sent. Please try again.");
       navigate("/auth/sign-up", { replace: true });
       return;
     }
 
-    // Already complete — activate and move on.
-    // Do NOT gate on createdSessionId: Clerk can return status=complete with
-    // createdSessionId:null when the session was already activated elsewhere.
     if (signUp.status === "complete") {
       console.log("[FC Verify] signUp already complete on mount — sessionId:", signUp.createdSessionId ?? "null");
       const doComplete = async () => {
@@ -77,7 +70,7 @@ export default function VerifyEmailPage() {
     }
   }, [isLoaded, signUp?.status, signUp?.id, signUp?.createdSessionId]);
 
-  // Pick up the verify error written by the guard above when the user is sent back.
+  // ── Pick up error from guard redirect ────────────────────────────────────
   useEffect(() => {
     const stored = sessionStorage.getItem("fc_verify_error");
     if (stored) {
@@ -86,102 +79,73 @@ export default function VerifyEmailPage() {
     }
   }, []);
 
-  // ── Shared completion helper ─────────────────────────────────────────────────
-  // Called from both the happy-path (status=complete) and the recovery path
-  // (verification_already_verified). Does NOT gate on createdSessionId being
-  // truthy — per the Clerk quirk where status=complete can arrive with
-  // createdSessionId:null when the session was already activated.
+  // ── Shared completion helper ──────────────────────────────────────────────
   const completeSignUp = useCallback(async (sessionId: string | null, sentAt: string | null) => {
-    console.log("[FC Verify] ▶ completeSignUp | sessionId:", sessionId ?? "null (session already active)");
+    console.log("[FC Verify] ▶ completeSignUp | sessionId:", sessionId ?? "null");
     const verifiedAt = new Date().toISOString();
     sessionStorage.setItem("fc_otp_verified_at", verifiedAt);
     if (sentAt) {
-      const deliveryMs = new Date(verifiedAt).getTime() - new Date(sentAt).getTime();
-      console.log("[FC OTP] ✓ Verification complete | delivery_ms:", deliveryMs, `(${(deliveryMs / 1000).toFixed(1)}s)`);
+      const ms = new Date(verifiedAt).getTime() - new Date(sentAt).getTime();
+      console.log("[FC OTP] ✓ Verified | delivery_ms:", ms);
     }
     if (sessionId) {
-      console.log("[FC Verify] ▶ Activating session:", sessionId);
       await setActive({ session: sessionId });
       console.log("[FC Verify] ✓ Session activated");
     } else {
-      console.warn("[FC Verify] createdSessionId=null — session already active, skipping setActive");
+      console.warn("[FC Verify] createdSessionId=null — session already active");
     }
     sessionStorage.removeItem("fc_signup_email");
-    console.log("[FC Verify] → Redirecting to /auth/callback");
     navigate("/auth/callback", { replace: true });
   }, [setActive, navigate]);
 
+  // ── Verify ────────────────────────────────────────────────────────────────
   const performVerify = useCallback(async (code: string) => {
     if (!isLoaded || !signUp) return;
-    // Atomic guard: prevents double-call from auto-submit + manual submit racing
     if (verifyingRef.current) {
-      console.log("[FC Verify] ⚠ performVerify called while already in-flight — skipped");
+      console.log("[FC Verify] ⚠ already in-flight — skipped");
       return;
     }
 
-    // ── Diagnostic: OTP value ──────────────────────────────────────────────
     console.log("════════════════════════════════════════════════");
     console.log("OTP entered:", code);
     console.log("OTP length:", code.length);
     console.log("SignUp status:", signUp.status);
     console.log("SignUp id:", signUp.id ?? "null");
     console.log("SignUp unverifiedFields:", signUp.unverifiedFields ?? []);
-    console.log("SignUp emailAddress:", signUp.emailAddress ?? "(none)");
     console.log("════════════════════════════════════════════════");
 
-    if (code.length !== 6) { setError("Please enter all 6 digits."); return; }
+    if (code.length !== OTP_LENGTH) { setError("Please enter all 6 digits."); return; }
     setError("");
-    verifyingRef.current = true;   // set atomically BEFORE any await
+    verifyingRef.current = true;
     setLoading(true);
 
     const sentAt      = sessionStorage.getItem("fc_otp_sent_at");
     const verifyStart = Date.now();
-    console.log("[FC Verify] ▶ Attempting email verification");
-    console.log("[FC Verify]   email         :", email || "(not in sessionStorage)");
-    console.log("[FC Verify]   signUp.id     :", signUp.id ?? "null");
-    console.log("[FC Verify]   signUp.status :", signUp.status);
-    console.log("[FC Verify]   otp_sent_at   :", sentAt ?? "not recorded");
-    if (sentAt) {
-      console.log("[FC Verify]   wait since sent:", `${((Date.now() - new Date(sentAt).getTime()) / 1000).toFixed(1)}s`);
-    }
 
     try {
       console.log("Calling attemptEmailAddressVerification with payload:", { code });
       const result = await signUp.attemptEmailAddressVerification({ code });
-      const status = result.status as string;
 
-      console.log("Verification result:", result);
-      console.log("Verification status:", status);
+      console.log("Verification status:", result.status);
       console.log("Session:", result.createdSessionId ?? "null");
-      console.log("[FC Verify] ✓ attemptEmailAddressVerification result:");
-      console.log("[FC Verify]   status           :", status);
-      console.log("[FC Verify]   createdSessionId :", result.createdSessionId ?? "null");
-      console.log("[FC Verify]   api_took         :", `${Date.now() - verifyStart}ms`);
+      console.log("[FC Verify] api_took:", `${Date.now() - verifyStart}ms`);
 
-      if (status === "complete") {
+      if (result.status === "complete") {
         await completeSignUp(result.createdSessionId, sentAt);
       } else {
-        console.warn("[FC Verify] ✗ Unexpected verification status:", status);
+        console.warn("[FC Verify] ✗ Unexpected status:", result.status);
         setError("Verification incomplete. Please try again.");
       }
     } catch (err: any) {
       const errCode = err?.errors?.[0]?.code ?? "unknown";
       const msg     = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? "unknown";
       console.error("════════════════════════════════════════════════");
-      console.error("[FC Verify] ✗ Verification error | code:", errCode, "| message:", msg);
-      console.error("[FC Verify]   all errors:", err?.errors ?? "none");
+      console.error("[FC Verify] ✗ error code:", errCode, "| message:", msg);
       console.error(JSON.stringify(err, null, 2));
       console.error("════════════════════════════════════════════════");
 
-      // ── verification_already_verified ───────────────────────────────────
-      // Clerk throws this when attemptEmailAddressVerification is called on
-      // an email that was already verified (e.g. auto-submit fired twice, or
-      // the user refreshed and Clerk already completed the verification).
-      // Treat it as success: the signUp reactive object is already complete.
       if (errCode === "verification_already_verified") {
-        console.log("[FC Verify] verification_already_verified — email already verified, recovering signup state");
-        console.log("[FC Verify]   signUp.status          :", signUp.status);
-        console.log("[FC Verify]   signUp.createdSessionId:", signUp.createdSessionId ?? "null");
+        console.log("[FC Verify] already verified — recovering:", signUp.status, signUp.createdSessionId);
         await completeSignUp(signUp.createdSessionId ?? null, sentAt);
         return;
       }
@@ -192,94 +156,149 @@ export default function VerifyEmailPage() {
         setError("Code expired. Please request a new one.");
       else
         setError(`Verification failed: [${errCode}] ${msg}`);
-      setOtp(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
+
+      setOtp("");
+      setTimeout(() => inputRefs.current[0]?.focus(), 0);
     } finally {
       verifyingRef.current = false;
       setLoading(false);
     }
-  }, [isLoaded, signUp, setActive, navigate, email, completeSignUp]);
+  }, [isLoaded, signUp, completeSignUp]);
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleVerify = (e: React.FormEvent) => {
     e.preventDefault();
-    await performVerify(otp.join(""));
+    performVerify(otp);
   };
 
-  // Auto-submit when all 6 digits are filled.
+  // ── Auto-submit when all 6 digits filled ─────────────────────────────────
   useEffect(() => {
-    const code = otp.join("");
-    if (code.length === 6 && !loadingRef.current && isLoaded && signUp) {
-      const t = setTimeout(() => performVerify(code), 120);
-      return () => clearTimeout(t);
+    if (!allFilled || verifyingRef.current || !isLoaded || !signUp) return;
+    const t = setTimeout(() => performVerify(otp), 300);
+    return () => clearTimeout(t);
+  }, [otp, allFilled, isLoaded, signUp, performVerify]);
+
+  // ── OTP string helpers ────────────────────────────────────────────────────
+  const setCharAt = (str: string, index: number, char: string): string => {
+    const arr = Array.from({ length: OTP_LENGTH }, (_, i) => str[i] ?? "");
+    arr[index] = char;
+    // Build result: keep all chars, trim only trailing empty slots
+    let result = arr.join("");
+    while (result.length > 0 && result[result.length - 1] === "") {
+      result = result.slice(0, -1);
     }
-  }, [otp, isLoaded, signUp, performVerify]);
+    return result;
+  };
 
-  const handleChange = (index: number, value: string) => {
-    const digits = value.replace(/\D/g, "");
-    if (!digits) return;
+  const clearCharAt = (str: string, index: number): string => {
+    const arr = Array.from({ length: OTP_LENGTH }, (_, i) => str[i] ?? "");
+    arr[index] = "";
+    let result = arr.join("");
+    while (result.length > 0 && result[result.length - 1] === "") {
+      result = result.slice(0, -1);
+    }
+    return result;
+  };
 
-    // Handle browser autofill / paste-into-input: if >1 digit arrives in one
-    // change event (e.g. browser "one-time-code" autofill fills the first input
-    // with the whole 6-digit string), distribute them across all boxes.
-    if (digits.length > 1) {
-      const updated = [...otp];
-      digits.split("").forEach((d, i) => {
-        if (index + i < 6) updated[index + i] = d;
-      });
-      setOtp(updated);
-      const nextIndex = Math.min(index + digits.length, 5);
-      inputRefs.current[nextIndex]?.focus();
+  // ── Keyboard handler ──────────────────────────────────────────────────────
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace") {
+      e.preventDefault(); // we manage state — don't let browser mutate the input
+      if (otp[index]) {
+        // Filled box: clear this digit, stay on current box
+        setOtp(prev => clearCharAt(prev, index));
+      } else if (index > 0) {
+        // Empty box: move focus to previous box
+        inputRefs.current[index - 1]?.focus();
+      }
       return;
     }
 
-    const updated = [...otp];
-    updated[index] = digits;
-    setOtp(updated);
-    if (index < 5) inputRefs.current[index + 1]?.focus();
-  };
+    if (e.key === "Delete") {
+      e.preventDefault();
+      setOtp(prev => clearCharAt(prev, index));
+      return;
+    }
 
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (index > 0) inputRefs.current[index - 1]?.focus();
+      return;
+    }
+
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
+      return;
     }
   };
 
+  // ── Change handler ────────────────────────────────────────────────────────
+  const handleChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw    = e.target.value;
+    const digits = raw.replace(/\D/g, "");
+
+    // Empty value: mobile backspace (onKeyDown may not have fired / prevented default)
+    if (digits.length === 0) {
+      if (otp[index]) {
+        setOtp(prev => clearCharAt(prev, index));
+      } else if (index > 0) {
+        inputRefs.current[index - 1]?.focus();
+      }
+      return;
+    }
+
+    // Multiple digits: browser autofill injected full code into this box
+    if (digits.length > 1) {
+      const arr = Array.from({ length: OTP_LENGTH }, (_, i) => otp[i] ?? "");
+      [...digits].forEach((d, offset) => {
+        if (index + offset < OTP_LENGTH) arr[index + offset] = d;
+      });
+      setOtp(arr.join("").slice(0, OTP_LENGTH));
+      const focusAt = Math.min(index + digits.length, OTP_LENGTH - 1);
+      setTimeout(() => inputRefs.current[focusAt]?.focus(), 0);
+      return;
+    }
+
+    // Single digit: place and advance
+    setOtp(prev => setCharAt(prev, index, digits));
+    if (index < OTP_LENGTH - 1) {
+      setTimeout(() => inputRefs.current[index + 1]?.focus(), 0);
+    }
+  };
+
+  // ── Paste handler (clipboard paste on the container) ─────────────────────
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const digits = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (digits.length > 0) {
-      const filled = [...otp];
-      digits.split("").forEach((d, i) => { if (i < 6) filled[i] = d; });
-      setOtp(filled);
-      inputRefs.current[Math.min(digits.length, 5)]?.focus();
-    }
+    const digits = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
+    if (!digits) return;
+    const arr = Array.from({ length: OTP_LENGTH }, (_, i) => digits[i] ?? "");
+    setOtp(arr.join("").slice(0, OTP_LENGTH));
+    setTimeout(() => inputRefs.current[Math.min(digits.length, OTP_LENGTH - 1)]?.focus(), 0);
   };
 
+  // ── Resend ────────────────────────────────────────────────────────────────
   const handleResend = async () => {
     if (!isLoaded || !signUp || countdown > 0 || resending) return;
     setResending(true);
-    console.log("[FC Verify] Resending OTP to:", email);
     try {
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       markOtpSent();
-      setOtp(["", "", "", "", "", ""]);
+      setOtp("");
       setError("");
       setCountdown(30);
-      inputRefs.current[0]?.focus();
+      setTimeout(() => inputRefs.current[0]?.focus(), 0);
       toast.success("A new code has been sent to your email.");
     } catch (err: any) {
       const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? String(err);
       const code = err?.errors?.[0]?.code ?? "resend_failed";
-      console.error("[FC Verify] Failed to resend OTP | code:", code, "| message:", msg);
+      console.error("[FC Verify] Resend failed | code:", code, "| msg:", msg);
       toast.error("Failed to resend code. Please try again.");
     } finally {
       setResending(false);
     }
   };
 
-  // Clear OTP sessionStorage flags so the guard resets on the next signup attempt,
-  // then navigate back to sign-up with a flag that prevents the resume-detection
-  // useEffect from bouncing the user straight back here.
+  // ── Edit email ────────────────────────────────────────────────────────────
   const handleEditEmail = () => {
     sessionStorage.removeItem("fc_otp_request_count");
     sessionStorage.removeItem("fc_otp_sent_at");
@@ -288,11 +307,21 @@ export default function VerifyEmailPage() {
     navigate("/auth/sign-up", { replace: true, state: { editingEmail: true } });
   };
 
-  const allFilled = otp.join("").length === 6;
+  // ── Styles ────────────────────────────────────────────────────────────────
+  const boxBase =
+    "h-14 w-12 rounded-xl border-2 bg-white/[0.07] text-center text-2xl font-bold text-white " +
+    "outline-none transition-all duration-150 caret-violet-400 select-none " +
+    "sm:h-16 sm:w-14 sm:text-3xl";
+
+  const boxIdle    = "border-white/20 hover:border-white/35";
+  const boxFilled  = "border-violet-500 bg-white/[0.10] shadow-[0_0_0_3px_rgba(139,92,246,0.18)]";
+  const boxFocused = "focus:border-violet-400 focus:bg-white/[0.12] focus:shadow-[0_0_0_3px_rgba(139,92,246,0.25)]";
 
   return (
     <AuthLayout hideBackButton>
       <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur-2xl shadow-2xl shadow-black/60">
+
+        {/* Header */}
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-600/30 to-blue-600/30 shadow-lg shadow-violet-900/20">
             <Mail className="h-7 w-7 text-violet-300" />
@@ -313,45 +342,44 @@ export default function VerifyEmailPage() {
         </div>
 
         <form onSubmit={handleVerify} className="space-y-6">
+          {/* Error */}
           {error && (
             <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-300 text-center">
               {error}
             </div>
           )}
 
+          {/* OTP boxes */}
           <div
             className="flex items-center justify-center gap-3"
             onPaste={handlePaste}
             role="group"
             aria-label="One-time password input"
           >
-            {otp.map((digit, i) => (
-              <input
-                key={i}
-                ref={(el) => { inputRefs.current[i] = el; }}
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={1}
-                value={digit}
-                autoFocus={i === 0}
-                autoComplete={i === 0 ? "one-time-code" : "off"}
-                aria-label={`Digit ${i + 1} of 6`}
-                onChange={(e) => handleChange(i, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(i, e)}
-                className={[
-                  "h-14 w-12 rounded-xl text-center text-2xl font-bold text-white outline-none transition-all duration-150 caret-violet-400 selection:bg-violet-500/30",
-                  "border-2 bg-white/[0.07]",
-                  digit
-                    ? "border-violet-500 bg-white/[0.10] shadow-[0_0_0_3px_rgba(139,92,246,0.18)]"
-                    : "border-white/20 hover:border-white/35",
-                  "focus:border-violet-400 focus:bg-white/[0.12] focus:shadow-[0_0_0_3px_rgba(139,92,246,0.25)]",
-                  "sm:h-16 sm:w-14 sm:text-3xl",
-                ].join(" ")}
-              />
-            ))}
+            {Array.from({ length: OTP_LENGTH }, (_, i) => {
+              const digit = otp[i] ?? "";
+              return (
+                <input
+                  key={i}
+                  ref={el => { inputRefs.current[i] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  value={digit}
+                  autoFocus={i === 0}
+                  autoComplete={i === 0 ? "one-time-code" : "off"}
+                  aria-label={`Digit ${i + 1} of ${OTP_LENGTH}`}
+                  onFocus={e => e.target.select()}
+                  onChange={e => handleChange(i, e)}
+                  onKeyDown={e => handleKeyDown(i, e)}
+                  className={[boxBase, digit ? boxFilled : boxIdle, boxFocused].join(" ")}
+                />
+              );
+            })}
           </div>
 
+          {/* Submit */}
           <button
             type="submit"
             disabled={loading || !allFilled}
@@ -362,9 +390,13 @@ export default function VerifyEmailPage() {
                 : "bg-white/10 cursor-not-allowed opacity-50 shadow-none",
             ].join(" ")}
           >
-            {loading ? (<><Loader2 className="h-5 w-5 animate-spin" />Verifying…</>) : "Verify email"}
+            {loading
+              ? <><Loader2 className="h-5 w-5 animate-spin" />Verifying…</>
+              : "Verify email"
+            }
           </button>
 
+          {/* Resend */}
           <div className="text-center">
             {countdown > 0 ? (
               <p className="text-sm text-white/35">
