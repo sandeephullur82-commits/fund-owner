@@ -1,24 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { useSignIn, useUser, useClerk } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle, KeyRound } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
-function clerkErrorMessage(err: any): string {
-  const code = err?.errors?.[0]?.code ?? "";
-  if (code === "form_password_incorrect")      return "Invalid email or password.";
-  if (code === "form_identifier_not_found")    return "Account not found.";
-  if (code === "form_param_format_invalid")    return "Please enter a valid email address.";
-  if (code === "too_many_requests")            return "Too many attempts. Please wait a moment and try again.";
-  if (code === "session_exists")               return "You are already signed in.";
-  if (code === "user_locked")                  return "This account has been locked. Please contact support.";
-  if (code === "strategy_for_user_invalid")    return "Password reset required. Use 'Forgot password' to set one.";
-  if (code === "form_identifier_exists")       return "An account with this email already exists.";
-  if (code === "verification_expired")         return "Verification code expired. Please request a new one.";
-  if (code === "not_allowed_access")           return "Access denied. Your account may be suspended.";
-  if (code === "organization_not_found")       return "Your organization could not be found. Contact your administrator.";
-  if (code === "form_param_nil")               return "Email and password are required.";
-  return "Invalid email or password.";
+const IS_DEV =
+  import.meta.env.DEV ||
+  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "").startsWith("pk_test_");
+
+// ── Extracts the best human-readable message from a Clerk error ──────────────
+// Priority: Clerk longMessage → Clerk message → code-based fallback → generic
+function clerkErrorMessage(err: any): { message: string; code: string } {
+  const code       = err?.errors?.[0]?.code       ?? "unknown";
+  const longMsg    = err?.errors?.[0]?.longMessage ?? "";
+  const shortMsg   = err?.errors?.[0]?.message     ?? "";
+  const jsMsg      = err?.message                  ?? "";
+
+  // Use Clerk's own long message first — it is always accurate and specific
+  const message = longMsg || shortMsg || jsMsg || "Sign-in failed. Please try again.";
+
+  return { message, code };
+}
+
+// ── Returns true when the error means "no password strategy set up" ──────────
+function isNoPasswordStrategy(code: string) {
+  return code === "strategy_for_user_invalid" || code === "not_allowed_access";
 }
 
 export default function SignInPage() {
@@ -32,6 +38,8 @@ export default function SignInPage() {
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
+  const [errorCode, setErrorCode] = useState("");
+  const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
 
   useEffect(() => {
     if (userLoaded && isSignedIn) {
@@ -43,71 +51,70 @@ export default function SignInPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded || !signIn || !setActive || loading) return;
+
     setError("");
+    setErrorCode("");
+    setNeedsPasswordSetup(false);
     setLoading(true);
 
     const identifier = email.trim().toLowerCase();
 
     console.log("════════════════════════════════════════════════");
-    console.log("[FC STEP 7] ▶ Sign-in attempt");
-    console.log("[FC STEP 7]   identifier :", identifier);
-    console.log("[FC STEP 7]   timestamp  :", new Date().toISOString());
+    console.log("[FC SignIn] ▶ Sign-in attempt");
+    console.log("[FC SignIn]   identifier :", identifier);
+    console.log("[FC SignIn]   timestamp  :", new Date().toISOString());
     console.log("════════════════════════════════════════════════");
 
     try {
       if (isSignedIn) {
-        console.log("[FC STEP 7] Clearing stale Clerk session before new sign-in…");
+        console.log("[FC SignIn] Clearing stale Clerk session before new sign-in…");
         await clerk.signOut();
       }
 
-      console.log("[FC STEP 7] Calling signIn.create({ identifier, password })…");
+      console.log("[FC SignIn] Calling signIn.create({ identifier, password })…");
       const result = await signIn.create({ identifier, password });
       const status = result.status as string;
 
-      console.log("[FC STEP 7] signIn.create() result:");
-      console.log("[FC STEP 7]   status           :", status);
-      console.log("[FC STEP 7]   createdSessionId :", result.createdSessionId ?? "null");
-      console.log("[FC STEP 7]   firstFactorVerification:", (result as any).firstFactorVerification?.status ?? "—");
+      console.log("[FC SignIn] signIn.create() result:");
+      console.log("[FC SignIn]   status           :", status);
+      console.log("[FC SignIn]   createdSessionId :", result.createdSessionId ?? "null");
+      console.log("[FC SignIn]   firstFactorVerification:", (result as any).firstFactorVerification?.status ?? "—");
 
       if (status === "complete") {
-        console.log("────────────────────────────────────────────");
-        console.log("[FC STEP 8] ▶ Session creation — calling setActive()");
-        console.log("[FC STEP 8]   sessionId :", result.createdSessionId ?? "null (already active)");
-
+        console.log("[FC SignIn] ▶ Session creation — calling setActive()");
         if (result.createdSessionId) {
           await setActive({ session: result.createdSessionId });
-          console.log("[FC STEP 8] ✓ Session activated — sessionId:", result.createdSessionId);
+          console.log("[FC SignIn] ✓ Session activated:", result.createdSessionId);
         } else {
-          console.warn("[FC STEP 8] status=complete but sessionId=null — session already active, continuing");
+          console.warn("[FC SignIn] status=complete, sessionId=null — session already active");
         }
-
-        console.log("[FC STEP 8] → Redirecting to /router (role resolution next)");
-        console.log("────────────────────────────────────────────");
+        console.log("[FC SignIn] → Redirecting to /router");
         navigate("/router", { replace: true });
         return;
       }
 
-      console.warn("[FC STEP 7] Unexpected status:", status);
+      // Recovery: if session exists despite non-complete status
       if (result.createdSessionId) {
-        console.log("[FC STEP 8] Recovery: activating available session despite status:", status);
+        console.log("[FC SignIn] Recovery: activating session despite status:", status);
         await setActive({ session: result.createdSessionId });
         navigate("/router", { replace: true });
         return;
       }
 
+      console.warn("[FC SignIn] Unexpected status:", status);
       try { await clerk.signOut(); } catch { /* ignore */ }
-      setError("Invalid email or password.");
+      setError("Sign-in returned an unexpected state. Please try again.");
+      setErrorCode(status);
 
     } catch (err: any) {
-      const code = err?.errors?.[0]?.code ?? "unknown";
-      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? err?.message ?? "unknown";
+      const { message, code } = clerkErrorMessage(err);
 
       console.error("════════════════════════════════════════════════");
-      console.error("[FC STEP 7] ✗ signIn.create() threw an exception");
-      console.error("[FC STEP 7]   error.code    :", code);
-      console.error("[FC STEP 7]   error.message :", msg);
-      console.error("[FC STEP 7]   error.errors  :", err?.errors ?? "none");
-      console.error("[FC STEP 7]   full error    :", err);
+      console.error("[FC SignIn] ✗ signIn.create() error");
+      console.error("[FC SignIn]   error.code    :", code);
+      console.error("[FC SignIn]   error.message :", message);
+      console.error("[FC SignIn]   error.errors  :", JSON.stringify(err?.errors ?? null, null, 2));
+      console.error("[FC SignIn]   full error    :", err);
       console.error("════════════════════════════════════════════════");
 
       if (code === "session_exists") {
@@ -115,7 +122,16 @@ export default function SignInPage() {
         return;
       }
 
-      setError(clerkErrorMessage(err));
+      if (isNoPasswordStrategy(code)) {
+        setNeedsPasswordSetup(true);
+        setError(message);
+        setErrorCode(code);
+        setLoading(false);
+        return;
+      }
+
+      setError(message);
+      setErrorCode(code);
     } finally {
       setLoading(false);
     }
@@ -130,13 +146,42 @@ export default function SignInPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ── Error block ─────────────────────────────────────────────────── */}
           {error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-red-500/25 bg-red-500/12 px-4 py-3 text-sm text-red-300">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+            <div className="rounded-xl border border-red-500/25 bg-red-500/12 px-4 py-3 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
+                <span className="text-sm text-red-300">{error}</span>
+              </div>
+
+              {/* Dev-mode error code badge */}
+              {IS_DEV && errorCode && errorCode !== "unknown" && (
+                <div className="ml-6">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-red-900/50 border border-red-700/40 px-2 py-0.5 text-[10px] font-mono text-red-400">
+                    Clerk code: {errorCode}
+                  </span>
+                </div>
+              )}
+
+              {/* Inline "Set up password" prompt for no-password accounts */}
+              {needsPasswordSetup && (
+                <div className="ml-6 flex items-center gap-2 pt-1">
+                  <KeyRound className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <p className="text-xs text-amber-300">
+                    This account has no password set.{" "}
+                    <Link
+                      to="/auth/forgot-password"
+                      className="font-semibold text-amber-200 underline underline-offset-2 hover:text-white transition-colors"
+                    >
+                      Click here to create one.
+                    </Link>
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
+          {/* ── Email ──────────────────────────────────────────────────────── */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/95">
               Email address
@@ -153,12 +198,16 @@ export default function SignInPage() {
             />
           </div>
 
+          {/* ── Password ───────────────────────────────────────────────────── */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/95">
                 Password
               </label>
-              <Link to="/auth/forgot-password" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">
+              <Link
+                to="/auth/forgot-password"
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
                 Forgot password?
               </Link>
             </div>
@@ -183,18 +232,26 @@ export default function SignInPage() {
             </div>
           </div>
 
+          {/* ── Submit ─────────────────────────────────────────────────────── */}
           <button
             type="submit"
             disabled={loading}
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition hover:from-violet-500 hover:to-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
           >
-            {loading ? (<><Loader2 className="h-4 w-4 animate-spin" />Signing in…</>) : "Sign in"}
+            {loading ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />Signing in…</>
+            ) : (
+              "Sign in"
+            )}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-white/65">
           Don&apos;t have an account?{" "}
-          <Link to="/auth/sign-up" className="font-semibold text-violet-400 hover:text-violet-300 transition-colors">
+          <Link
+            to="/auth/sign-up"
+            className="font-semibold text-violet-400 hover:text-violet-300 transition-colors"
+          >
             Create account
           </Link>
         </p>
