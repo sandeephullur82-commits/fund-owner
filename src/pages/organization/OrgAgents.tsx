@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useCollectionRealtime, useDocumentRealtime } from "@/lib/firestore-hooks";
 import { Membership } from "@/types";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createDirectMember, validateAgentEmail } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
-import { where, doc, updateDoc, serverTimestamp, getDocs, query, collection } from "firebase/firestore";
+import { where, doc, updateDoc, serverTimestamp, onSnapshot, query, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   Search, Plus, AlertTriangle, UserCheck, Info, Loader2,
@@ -164,16 +164,34 @@ export default function OrgAgents() {
     } finally { setIsSubmitting(false); }
   };
 
-  const handleOpenView = async (agent: Membership) => {
+  const handleOpenView = (agent: Membership) => {
     setViewAgent(agent);
-    setLoadingStats(true);
-    try {
-      const custCount = customersByAgent[agent.id] || 0;
-      const snap = await getDocs(query(collection(db, "collections"), where("agentId", "==", agent.clerkUserId || agent.id)));
-      setViewStats({ customers: custCount, collections: snap.size });
-    } catch { setViewStats({ customers: customersByAgent[agent.id] || 0, collections: 0 }); }
-    finally { setLoadingStats(false); }
   };
+
+  // Real-time collections count listener — fires whenever the view dialog is open
+  useEffect(() => {
+    if (!viewAgent) {
+      setViewStats(null);
+      setLoadingStats(false);
+      return;
+    }
+    setLoadingStats(true);
+    const agentLookupId = viewAgent.clerkUserId || viewAgent.id;
+    const q = query(collection(db, "collections"), where("agentId", "==", agentLookupId));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setViewStats({ customers: customersByAgent[viewAgent.id] || 0, collections: snap.size });
+        setLoadingStats(false);
+      },
+      (err) => {
+        console.error("[OrgAgents] collections listener error:", err);
+        setViewStats({ customers: customersByAgent[viewAgent.id] || 0, collections: 0 });
+        setLoadingStats(false);
+      }
+    );
+    return () => unsub();
+  }, [viewAgent?.id, viewAgent?.clerkUserId]);
 
   const handleOpenEdit = (agent: Membership) => {
     setEditAgent(agent);

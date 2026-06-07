@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Loan, LoanInstallment, Membership } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { format, isBefore, startOfDay } from "date-fns";
 import { Search, CreditCard, Loader2, AlertTriangle, CheckCircle, Banknote, Smartphone, Building2 } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { recordEMICollection } from "@/lib/services";
-import { getDocs, query, collection, where } from "firebase/firestore";
+import { onSnapshot, query, collection, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ReceiptModal, { ReceiptData } from "@/components/ReceiptModal";
 
@@ -41,6 +41,7 @@ export default function AgentEMICollection() {
   const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
   const [customerLoan, setCustomerLoan] = useState<CustomerLoan | null>(null);
   const [loadingLoan, setLoadingLoan] = useState(false);
+  const [activeLoanId, setActiveLoanId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI" | "BANK_TRANSFER">("CASH");
@@ -75,45 +76,56 @@ export default function AgentEMICollection() {
     return !search || name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search);
   });
 
-  const handleSelectCustomer = async (customer: Membership) => {
+  const handleSelectCustomer = (customer: Membership) => {
     setSelectedCustomer(customer);
     setCustomerLoan(null);
-    setLoadingLoan(true);
-    try {
-      // Get the customer's active loan that is assigned to this agent
-      const activeLoan = loans.find((l) => {
-        const isCustomerMatch = l.customerId === customer.id || l.customerId === customer.clerkUserId;
-        return isCustomerMatch && isMyLoan(l, customer);
-      });
-      if (!activeLoan) {
-        setCustomerLoan(null);
-        setLoadingLoan(false);
-        return;
-      }
-
-      // Get installments
-      const today = startOfDay(new Date());
-      const snap = await getDocs(
-        query(
-          collection(db, "loan_installments"),
-          where("loanId", "==", activeLoan.id),
-          where("status", "!=", "PAID")
-        )
-      );
-      const installments = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as LoanInstallment))
-        .sort((a, b) => a.installmentNo - b.installmentNo);
-
-      const nextInst = installments[0] || null;
-      const overdueCount = installments.filter((i) => isBefore(toDate(i.dueDate), today)).length;
-
-      setCustomerLoan({ loan: activeLoan, nextInstallment: nextInst, overdueCount });
-    } catch (e) {
-      toast.error("Failed to load loan details");
-    } finally {
-      setLoadingLoan(false);
-    }
+    const loan = loans.find((l) => {
+      const isCustomerMatch = l.customerId === customer.id || l.customerId === customer.clerkUserId;
+      return isCustomerMatch && isMyLoan(l, customer);
+    });
+    setActiveLoanId(loan?.id ?? null);
+    if (!loan) setLoadingLoan(false);
   };
+
+  // Clear activeLoanId whenever the dialog is closed
+  useEffect(() => {
+    if (!selectedCustomer) setActiveLoanId(null);
+  }, [selectedCustomer]);
+
+  // Real-time pending installments listener — fires whenever a customer's loan dialog is open
+  useEffect(() => {
+    if (!activeLoanId) {
+      setCustomerLoan(null);
+      setLoadingLoan(false);
+      return;
+    }
+    setLoadingLoan(true);
+    const today = startOfDay(new Date());
+    const q = query(
+      collection(db, "loan_installments"),
+      where("loanId", "==", activeLoanId),
+      where("status", "!=", "PAID")
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const loan = loans.find((l) => l.id === activeLoanId) ?? null;
+        const installments = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as LoanInstallment))
+          .sort((a, b) => a.installmentNo - b.installmentNo);
+        const nextInst = installments[0] || null;
+        const overdueCount = installments.filter((i) => isBefore(toDate(i.dueDate), today)).length;
+        setCustomerLoan(loan ? { loan, nextInstallment: nextInst, overdueCount } : null);
+        setLoadingLoan(false);
+      },
+      (err) => {
+        console.error("[AgentEMICollection] installments listener error:", err);
+        toast.error("Failed to load loan details");
+        setLoadingLoan(false);
+      }
+    );
+    return () => unsub();
+  }, [activeLoanId]);
 
   const handleCollectEMI = async () => {
     if (!selectedCustomer || !customerLoan?.nextInstallment || !orgId || !user?.id) return;

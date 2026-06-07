@@ -12,7 +12,7 @@ import { format, isBefore, startOfDay } from "date-fns";
 import { Search, Plus, CheckCircle, XCircle, Eye, Loader2, AlertTriangle, CreditCard, Inbox, ChevronDown, Crown, ShieldCheck, TrendingUp, Banknote } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { createLoan, approveLoan, rejectLoan, calculateEMI } from "@/lib/services";
-import { where, getDocs, query, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { where, onSnapshot, query, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -318,22 +318,36 @@ export default function OrgLoans() {
     }
   };
 
-  const handleViewSchedule = async (loan: Loan) => {
+  const handleViewSchedule = (loan: Loan) => {
     setViewLoan(loan);
-    setScheduleLoading(true);
-    setScheduleInstallments([]);
-    try {
-      const snap = await getDocs(query(collection(db, "loan_installments"), where("loanId", "==", loan.id)));
-      const items = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as LoanInstallment))
-        .sort((a, b) => a.installmentNo - b.installmentNo);
-      setScheduleInstallments(items);
-    } catch {
-      toast.error("Failed to load EMI schedule");
-    } finally {
-      setScheduleLoading(false);
-    }
   };
+
+  // Real-time EMI schedule listener — fires whenever the dialog is open
+  useEffect(() => {
+    if (!viewLoan?.id) {
+      setScheduleInstallments([]);
+      setScheduleLoading(false);
+      return;
+    }
+    setScheduleLoading(true);
+    const q = query(collection(db, "loan_installments"), where("loanId", "==", viewLoan.id));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const items = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as LoanInstallment))
+          .sort((a, b) => a.installmentNo - b.installmentNo);
+        setScheduleInstallments(items);
+        setScheduleLoading(false);
+      },
+      (err) => {
+        console.error("[OrgLoans] installments listener error:", err);
+        toast.error("Failed to load EMI schedule");
+        setScheduleLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [viewLoan?.id]);
 
   const today = startOfDay(new Date());
 
