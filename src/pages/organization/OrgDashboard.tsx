@@ -409,12 +409,39 @@ const FAB_ACTIONS = [
   { id: "generateReport",   label: "Generate Report",     icon: BarChart2,    tab: "reports",     color: "#9333ea" },
 ] as const;
 
-// clamp a left/top position inside the viewport
+// ── FAB layout constants ────────────────────────────────────────────────────
+const FAB_MARGIN   = 16;   // px gap from every edge
+const MOB_NAV_H    = 56;   // mobile bottom-nav height (matches the <nav> element)
+
+/** Clamp left/top pixel coords to the safe drag area */
 function clampFabPos(x: number, y: number) {
+  const bottomNavH = window.innerWidth < 768 ? MOB_NAV_H : 0;
   return {
-    x: Math.max(0, Math.min(x, window.innerWidth  - FAB_SIZE)),
-    y: Math.max(0, Math.min(y, window.innerHeight - FAB_SIZE)),
+    x: Math.max(FAB_MARGIN, Math.min(x, window.innerWidth  - FAB_SIZE - FAB_MARGIN)),
+    y: Math.max(FAB_MARGIN, Math.min(y, window.innerHeight - FAB_SIZE - bottomNavH - FAB_MARGIN)),
   };
+}
+
+/** Convert pixel position → viewport-relative fractions [0..1] */
+function pixelsToPercent(x: number, y: number) {
+  return {
+    xPercent: x / window.innerWidth,
+    yPercent: y / window.innerHeight,
+  };
+}
+
+/** Convert fractions back to clamped pixel position.
+ *  Returns null if the fractions are invalid (NaN, outside 0..1). */
+function percentToPixels(xPercent: unknown, yPercent: unknown): { x: number; y: number } | null {
+  if (
+    typeof xPercent !== "number" || typeof yPercent !== "number" ||
+    !Number.isFinite(xPercent)  || !Number.isFinite(yPercent) ||
+    xPercent < 0 || xPercent > 1 || yPercent < 0 || yPercent > 1
+  ) return null;
+  return clampFabPos(
+    Math.round(xPercent * window.innerWidth),
+    Math.round(yPercent * window.innerHeight),
+  );
 }
 
 function QuickActionsFAB({
@@ -425,11 +452,15 @@ function QuickActionsFAB({
   onAction: (tab: string) => void;
   orgId: string;
 }) {
-  // null  = no saved position → CSS default (bottom/right)
-  // {x,y} = saved left/top coords
+  // null  = no saved position → CSS default (bottom-right)
+  // {x,y} = resolved left/top pixel coords
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Latest persisted fractions — kept in a ref so the resize handler can always
+  // read the current value without being a stale closure.
+  const savedPercent = useRef<{ xPercent: number; yPercent: number } | null>(null);
 
   const drag = useRef({
     active:   false,
@@ -446,16 +477,36 @@ function QuickActionsFAB({
     const uiRef = doc(db, "organizations", orgId, "settings", "ui");
     const unsub = onSnapshot(uiRef, (snap) => {
       if (drag.current.active) return; // never clobber an active drag
-      if (!snap.exists()) { setPos(null); return; }
+      if (!snap.exists()) { savedPercent.current = null; setPos(null); return; }
       const fp = snap.data()?.fabPosition;
-      if (fp?.x !== undefined && fp?.y !== undefined) {
-        setPos(clampFabPos(fp.x, fp.y));
+      // Accept new percent format; silently ignore old x/y pixel format (treats as reset)
+      const resolved = percentToPixels(fp?.xPercent, fp?.yPercent);
+      if (resolved) {
+        savedPercent.current = { xPercent: fp.xPercent, yPercent: fp.yPercent };
+        setPos(resolved);
       } else {
+        savedPercent.current = null;
         setPos(null);
       }
     }, () => {});
     return unsub;
   }, [orgId]);
+
+  // ── Recalculate position on viewport resize / orientation change ────────────
+  useEffect(() => {
+    const onResize = () => {
+      if (drag.current.active) return;
+      if (!savedPercent.current) { setPos(null); return; }
+      const resolved = percentToPixels(savedPercent.current.xPercent, savedPercent.current.yPercent);
+      setPos(resolved);  // null → falls back to CSS default
+    };
+    window.addEventListener("resize",            onResize, { passive: true });
+    window.addEventListener("orientationchange", onResize, { passive: true });
+    return () => {
+      window.removeEventListener("resize",            onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
 
   // ── ESC closes Speed Dial ──────────────────────────────────────────────────
   useEffect(() => {
@@ -465,12 +516,14 @@ function QuickActionsFAB({
     return () => document.removeEventListener("keydown", h);
   }, [open, setOpen]);
 
-  // ── Firestore save ─────────────────────────────────────────────────────────
+  // ── Firestore save (percentages) ───────────────────────────────────────────
   const savePos = (x: number, y: number) => {
     if (!orgId) return;
+    const { xPercent, yPercent } = pixelsToPercent(x, y);
+    savedPercent.current = { xPercent, yPercent };
     setDoc(
       doc(db, "organizations", orgId, "settings", "ui"),
-      { fabPosition: { x, y } },
+      { fabPosition: { xPercent, yPercent } },
       { merge: true }
     ).catch(() => {});
   };
@@ -480,8 +533,7 @@ function QuickActionsFAB({
     if (e.button > 0) return;
     e.stopPropagation();
 
-    // Resolve starting left/top from saved pos OR from the actual rendered rect.
-    // getBoundingClientRect() is used when pos===null so we never rely on
+    // When no saved pos, read actual rendered rect so we never depend on
     // window.innerHeight (unreliable on mobile with address-bar / safe areas).
     let fabX: number, fabY: number;
     if (pos) {
@@ -535,26 +587,25 @@ function QuickActionsFAB({
     if (drag.current.hasMoved) {
       const { x, y } = clampFabPos(drag.current.pendingX, drag.current.pendingY);
       setPos({ x, y });
-      savePos(x, y);
+      savePos(x, y);   // persists as percentages
     } else {
       setOpen(!open);
     }
   };
 
   // ── Layout helpers ─────────────────────────────────────────────────────────
-  // dial above FAB when we know it's in the lower portion of the screen
-  const dialAbove = pos ? pos.y >= window.innerHeight * 0.45 : true;
-
+  const dialAbove    = pos ? pos.y >= window.innerHeight * 0.45 : true;
   const handleAction = (tab: string) => { setOpen(false); onAction(tab); };
 
-  // When no saved pos: CSS bottom/right (safe-area-aware, reliable on all mobile).
-  // When saved pos exists (or dragging): left/top absolute coords.
+  // Default (no saved pos): CSS bottom/right — safe-area-aware, never relies on
+  // window.innerHeight, works across orientations, scroll, and address-bar changes.
+  // Saved pos: left/top pixel coords derived from stored viewport percentages.
   const containerStyle: React.CSSProperties = pos
     ? { position: "fixed", left: pos.x, top: pos.y, zIndex: 9999,
         willChange: isDragging ? "left, top" : "auto" }
     : { position: "fixed",
-        bottom: "calc(90px + env(safe-area-inset-bottom, 0px))",
-        right: 20,
+        bottom: "calc(80px + env(safe-area-inset-bottom, 0px))",
+        right:  FAB_MARGIN,
         zIndex: 9999 };
 
   return (
