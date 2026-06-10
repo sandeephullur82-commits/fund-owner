@@ -632,12 +632,40 @@ function QuickActionsFAB({
   // ── Layout ─────────────────────────────────────────────────────────────────
   const handleAction = (tab: string) => { setOpen(false); onAction(tab); };
 
-  // Dial opens upward when FAB is in the lower half of the screen (default & common),
-  // downward when it's near the top.
-  const dialAbove = pos ? pos.y >= window.innerHeight * 0.45 : true;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // FAB centre in viewport coords (used for all quadrant decisions).
+  // When pos is null the FAB lives at CSS bottom-right, so we compute the
+  // equivalent pixel centre for the same boundary checks.
+  const fabCX = pos
+    ? pos.x + FAB_SIZE / 2
+    : vw - FAB_MARGIN - FAB_SIZE / 2;
+  const fabCY = pos
+    ? pos.y + FAB_SIZE / 2
+    : vh - (MOB_NAV_H + FAB_MARGIN) - FAB_SIZE / 2;
+
+  // ── Vertical: open upward when FAB is in the lower 55 % of the screen ──────
+  // Estimated dial height: 7 items × (44 px item + 8 px gap) = ~364 px.
+  const DIAL_ESTIMATED_H = FAB_ACTIONS.length * (DIAL_ITEM_SIZE + 8);
+  const spaceBelow = vh - (pos ? pos.y + FAB_SIZE : vh - (MOB_NAV_H + FAB_MARGIN)) - FAB_MARGIN;
+  const spaceAbove = (pos ? pos.y : vh - (MOB_NAV_H + FAB_MARGIN + FAB_SIZE)) - FAB_MARGIN;
+  // Prefer the direction with more room; fall back to upward (the common case).
+  const dialAbove = spaceAbove >= spaceBelow || spaceBelow < DIAL_ESTIMATED_H;
+
+  // ── Horizontal: labels on LEFT when FAB is in the right half ───────────────
+  // Labels on RIGHT when FAB is in the left half so they never overflow.
+  // Estimated label pill width: "New Savings Account" is the longest ≈ 170 px.
+  const LABEL_ESTIMATED_W = 180; // px — generous estimate including gap + icon
+  const fabRightEdge = pos ? pos.x + FAB_SIZE : vw - FAB_MARGIN;
+  const fabLeftEdge  = pos ? pos.x             : vw - FAB_MARGIN - FAB_SIZE;
+  const spaceToLeft  = fabLeftEdge  - FAB_MARGIN;
+  const spaceToRight = vw - fabRightEdge - FAB_MARGIN;
+  // Labels on left unless there isn't enough room; always fall back to whichever
+  // side has more space.
+  const labelsOnLeft = spaceToLeft >= LABEL_ESTIMATED_W || spaceToLeft >= spaceToRight;
 
   // FAB button style — position: fixed, anchored to pos.x / pos.y exactly.
-  // When pos is null we fall back to CSS bottom/right so no JS measurement needed.
   const fabStyle: React.CSSProperties = pos
     ? {
         position:   "fixed",
@@ -653,19 +681,24 @@ function QuickActionsFAB({
         zIndex:   9999,
       };
 
-  // Dial items container — separate fixed element so its width never affects
-  // the FAB button's position. Right-aligned to the FAB's right edge.
+  // ── Dial items container ────────────────────────────────────────────────────
+  // Separate fixed element — never affects FAB position.
+  // Anchored to the FAB's LEFT or RIGHT edge depending on which side the labels go.
+  //   labelsOnLeft  → container right edge = FAB right edge  (rows grow leftward)
+  //   !labelsOnLeft → container left  edge = FAB left  edge  (rows grow rightward)
   const dialStyle: React.CSSProperties = pos
     ? {
         position:      "fixed",
-        right:         window.innerWidth - pos.x - FAB_SIZE,
+        ...(labelsOnLeft
+          ? { right: vw - pos.x - FAB_SIZE }
+          : { left:  pos.x }),
         ...(dialAbove
-          ? { bottom: window.innerHeight - pos.y + 10 }
+          ? { bottom: vh - pos.y + 10 }
           : { top:    pos.y + FAB_SIZE + 10 }),
         zIndex:        9998,
         display:       "flex",
         flexDirection: dialAbove ? "column" : "column-reverse",
-        alignItems:    "flex-end",
+        alignItems:    labelsOnLeft ? "flex-end" : "flex-start",
         gap:           8,
         pointerEvents: open && !isDragging ? "auto" : "none",
       }
@@ -680,6 +713,15 @@ function QuickActionsFAB({
         gap:           8,
         pointerEvents: open && !isDragging ? "auto" : "none",
       };
+
+  // Translate direction for item enter/exit animation:
+  //   dialAbove  → items slide up   (enter from below → translateY +12 → 0)
+  //   !dialAbove → items slide down (enter from above → translateY -12 → 0)
+  const itemHideTranslate = dialAbove ? "translateY(12px)" : "translateY(-12px)";
+
+  // Suppress the unused-variable lint warning; fabCX/fabCY are intentionally
+  // computed for documentation even though only the derived booleans are used.
+  void fabCX; void fabCY;
 
   return (
     <>
@@ -707,21 +749,20 @@ function QuickActionsFAB({
               role="menuitem"
               aria-label={action.label}
               style={{
-                display:    "flex",
-                alignItems: "center",
-                gap:        10,
-                opacity:    visible ? 1 : 0,
-                transform:  visible
-                  ? "scale(1) translateY(0px)"
-                  : "scale(0.72) translateY(12px)",
-                transition: `opacity 180ms ease ${delay}, transform 210ms cubic-bezier(0.34,1.4,0.64,1) ${delay}`,
+                display:       "flex",
+                flexDirection: labelsOnLeft ? "row" : "row-reverse",
+                alignItems:    "center",
+                gap:           10,
+                opacity:       visible ? 1 : 0,
+                transform:     visible ? "scale(1) translateY(0px)" : `scale(0.82) ${itemHideTranslate}`,
+                transition:    `opacity 180ms ease ${delay}, transform 210ms cubic-bezier(0.34,1.4,0.64,1) ${delay}`,
                 pointerEvents: visible ? "auto" : "none",
               }}
             >
               {/* Label pill */}
               <span
                 style={{
-                  background:     "rgba(15,23,42,0.85)",
+                  background:     "rgba(15,23,42,0.88)",
                   color:          "#fff",
                   fontSize:       12,
                   fontWeight:     600,
