@@ -433,44 +433,72 @@ function FABSpeedDial({
   onAction: (tab: string) => void;
   orgId: string;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  // posRef tracks live position — used directly for DOM mutations (no re-render during drag)
-  const posRef = useRef(defaultFABPos());
-  // Separate state only for things that need a React re-render
+  // ── Responsive breakpoint detection ──────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)");
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    mql.addEventListener("change", handler);
+    handler();
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  // ── Desktop: drag state + DOM refs ───────────────────────────────────────
+  const fabRef  = useRef<HTMLDivElement>(null);
+  const dialRef = useRef<HTMLDivElement>(null);
+  const posRef  = useRef(defaultFABPos());
   const [posLoaded, setPosLoaded] = useState(false);
   const [openUpward, setOpenUpward] = useState(true);
 
   const drag = useRef({
     active: false,
-    startClientX: 0,
-    startClientY: 0,
-    startPosX: 0,
-    startPosY: 0,
+    startClientX: 0, startClientY: 0,
+    startPosX: 0, startPosY: 0,
     moved: false,
     rafId: null as number | null,
   });
 
-  // Apply position to DOM element directly (avoids re-render during RAF loop)
-  const applyPos = useCallback((x: number, y: number, skipDOMWrite = false) => {
+  // ── Bottom sheet: swipe-down tracking ─────────────────────────────────────
+  const sheetTouchStartY = useRef(0);
+
+  // ── Apply position — updates FAB + speed-dial overlay via direct DOM writes
+  const applyPos = useCallback((x: number, y: number) => {
     posRef.current = { x, y };
-    if (!skipDOMWrite && containerRef.current) {
-      containerRef.current.style.left = `${x}px`;
-      containerRef.current.style.top = `${y}px`;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isUp = y > vh * 0.35;
+
+    if (fabRef.current) {
+      fabRef.current.style.left = `${x}px`;
+      fabRef.current.style.top  = `${y}px`;
     }
-    // Update dial direction when position changes
-    setOpenUpward(y > window.innerHeight * 0.35);
+    // Speed-dial overlay: right-edge aligned with FAB right-edge, stacks upward/downward
+    if (dialRef.current) {
+      const dr = dialRef.current;
+      const dialRight = Math.max(8, vw - x - FAB_SIZE);
+      dr.style.right = `${dialRight}px`;
+      if (isUp) {
+        dr.style.bottom = `${vh - y}px`;
+        dr.style.top    = "auto";
+        dr.style.flexDirection = "column-reverse";
+      } else {
+        dr.style.top    = `${y + FAB_SIZE + 8}px`;
+        dr.style.bottom = "auto";
+        dr.style.flexDirection = "column";
+      }
+    }
+    setOpenUpward(isUp);
   }, []);
 
-  // ── Realtime Firestore position sync ──────────────────────────────────────
+  // ── Realtime Firestore position sync (desktop only — mobile pos is fixed) ──
   useEffect(() => {
     if (!orgId) return;
     const uiRef = doc(db, "organizations", orgId, "settings", "ui");
     const unsub = onSnapshot(uiRef, (snap) => {
       const data = snap.data();
       if (data?.fabPosition?.x !== undefined && data?.fabPosition?.y !== undefined) {
-        const clamped = clampFABPos(data.fabPosition.x, data.fabPosition.y);
-        // Don't interrupt an active drag from another device
-        if (!drag.current.active) applyPos(clamped.x, clamped.y);
+        const c = clampFABPos(data.fabPosition.x, data.fabPosition.y);
+        if (!drag.current.active) applyPos(c.x, c.y);
       } else {
         const def = defaultFABPos();
         if (!drag.current.active) applyPos(def.x, def.y);
@@ -480,32 +508,28 @@ function FABSpeedDial({
     return () => unsub();
   }, [orgId, applyPos]);
 
-  // ── Save position to Firestore ─────────────────────────────────────────────
+  // ── Save position to Firestore ────────────────────────────────────────────
   const savePos = useCallback(async (x: number, y: number) => {
     if (!orgId) return;
     try {
       await setDoc(
         doc(db, "organizations", orgId, "settings", "ui"),
         { fabPosition: { x, y }, updatedAt: serverTimestamp() },
-        { merge: true }
+        { merge: true },
       );
     } catch (_) {}
   }, [orgId]);
 
-  // ── Drag: pointer events on FAB button ────────────────────────────────────
+  // ── Drag handlers (desktop only) ──────────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    // Only primary button / first touch
-    if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+    if (isMobile) return;
+    if (e.button !== 0 && e.pointerType === "mouse") return;
     const d = drag.current;
-    d.active = true;
-    d.moved = false;
-    d.startClientX = e.clientX;
-    d.startClientY = e.clientY;
-    d.startPosX = posRef.current.x;
-    d.startPosY = posRef.current.y;
-    // Capture pointer so move/up fire even when cursor leaves the element
+    d.active = true; d.moved = false;
+    d.startClientX = e.clientX; d.startClientY = e.clientY;
+    d.startPosX = posRef.current.x; d.startPosY = posRef.current.y;
     (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-  }, []);
+  }, [isMobile]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     const d = drag.current;
@@ -515,13 +539,11 @@ function FABSpeedDial({
     if (Math.abs(dx) > 5 || Math.abs(dy) > 5) d.moved = true;
     if (!d.moved) return;
     e.preventDefault();
-    const newX = d.startPosX + dx;
-    const newY = d.startPosY + dy;
-    // Schedule DOM update via RAF for smoothness
+    // Cancel prior RAF and schedule a fresh one with the latest delta
     if (d.rafId !== null) cancelAnimationFrame(d.rafId);
     d.rafId = requestAnimationFrame(() => {
-      const clamped = clampFABPos(newX, newY);
-      applyPos(clamped.x, clamped.y);
+      applyPos(clampFABPos(d.startPosX + dx, d.startPosY + dy).x,
+               clampFABPos(d.startPosX + dx, d.startPosY + dy).y);
       d.rafId = null;
     });
   }, [applyPos]);
@@ -532,15 +554,13 @@ function FABSpeedDial({
     d.active = false;
     if (d.rafId !== null) { cancelAnimationFrame(d.rafId); d.rafId = null; }
     if (d.moved) {
-      // Drag ended — persist final position
       savePos(posRef.current.x, posRef.current.y);
     } else {
-      // Tap/click — toggle speed dial
       setOpen(!open);
     }
   }, [open, setOpen, savePos]);
 
-  // ── Close on ESC ──────────────────────────────────────────────────────────
+  // ── Close on ESC ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -548,36 +568,172 @@ function FABSpeedDial({
     return () => document.removeEventListener("keydown", h);
   }, [open, setOpen]);
 
-  // ── Close on outside click ────────────────────────────────────────────────
+  // ── Close on outside click (desktop speed-dial only) ─────────────────────
   useEffect(() => {
-    if (!open) return;
+    if (!open || isMobile) return;
     const h = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const inFab  = fabRef.current?.contains(e.target as Node);
+      const inDial = dialRef.current?.contains(e.target as Node);
+      if (!inFab && !inDial) setOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, [open, setOpen]);
+  }, [open, isMobile, setOpen]);
 
-  // Don't render until Firestore has resolved (avoids flash at wrong position)
+  // ══════════════════════════════════════════════════════════════════════════
+  // MOBILE RENDER — fixed FAB + Bottom Sheet
+  // ══════════════════════════════════════════════════════════════════════════
+  if (isMobile) {
+    return (
+      <>
+        {/* Fixed FAB — bottom:80px clears bottom nav (~56px) + padding */}
+        <button
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={open ? "Close quick actions" : "Open quick actions"}
+          style={{
+            position: "fixed",
+            bottom: 80,
+            right: 16,
+            width: FAB_SIZE,
+            height: FAB_SIZE,
+            zIndex: 9999,
+            borderRadius: "50%",
+            transform: open ? "rotate(45deg)" : "rotate(0deg)",
+            transition: "transform 220ms ease",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-[0_4px_24px_rgba(0,0,0,0.30)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+        >
+          <Plus className="w-6 h-6" aria-hidden="true" />
+        </button>
+
+        {/* Bottom Sheet — only mounted when open */}
+        {open && (
+          <>
+            {/* Scrim overlay */}
+            <div
+              aria-hidden="true"
+              style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
+              onClick={() => setOpen(false)}
+            />
+
+            {/* Sheet panel */}
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Quick actions"
+              style={{
+                position: "fixed",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                zIndex: 10001,
+                borderRadius: "20px 20px 0 0",
+                background: "#ffffff",
+                boxShadow: "0 -8px 48px rgba(0,0,0,0.16)",
+                paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)",
+                animation: "fabSheetUp 260ms cubic-bezier(0.32, 0.72, 0, 1) both",
+              }}
+              onTouchStart={(e) => { sheetTouchStartY.current = e.touches[0].clientY; }}
+              onTouchEnd={(e) => {
+                if (e.changedTouches[0].clientY - sheetTouchStartY.current > 60) setOpen(false);
+              }}
+            >
+              {/* Drag handle */}
+              <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 4 }}>
+                <div style={{ width: 40, height: 4, borderRadius: 2, background: "#e2e8f0" }} aria-hidden="true" />
+              </div>
+
+              <div style={{ padding: "4px 8px 4px" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", padding: "8px 16px 6px" }}>
+                  Quick Actions
+                </p>
+
+                {FAB_ACTIONS.map((action) => {
+                  const Icon = action.icon;
+                  const bgColor = action.color.split(" ")[0];
+                  return (
+                    <button
+                      key={action.id}
+                      onClick={() => { setOpen(false); onAction(action.tab); }}
+                      aria-label={action.label}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", borderRadius: 16, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+                      onPointerDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f1f5f9"; }}
+                      onPointerUp={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                      onPointerLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                    >
+                      <div className={`${bgColor} text-white`} style={{ width: 44, height: 44, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Icon style={{ width: 20, height: 20 }} aria-hidden="true" />
+                      </div>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{action.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DESKTOP RENDER — draggable FAB + speed-dial as separate fixed overlay
+  // ══════════════════════════════════════════════════════════════════════════
   if (!posLoaded) return null;
 
   const { x, y } = posRef.current;
-  // Speed dial items are absolutely positioned above or below the FAB
-  const dialClass = openUpward
-    ? "absolute bottom-[68px] right-0 flex flex-col-reverse items-end gap-3"
-    : "absolute top-[68px] right-0 flex flex-col items-end gap-3";
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Right offset aligns speed-dial right-edge with FAB right-edge
+  const dialRight = Math.max(8, vw - x - FAB_SIZE);
+  const dialStyle: React.CSSProperties = {
+    position: "fixed",
+    right: dialRight,
+    ...(openUpward
+      ? { bottom: vh - y, top: "auto", flexDirection: "column-reverse" as const, paddingBottom: 12 }
+      : { top: y + FAB_SIZE + 8, bottom: "auto", flexDirection: "column" as const, paddingTop: 12 }),
+    zIndex: 9998,
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 12,
+    pointerEvents: "none",
+  };
 
   return (
-    <div
-      ref={containerRef}
-      style={{ position: "fixed", left: x, top: y, width: FAB_SIZE, zIndex: 50 }}
-      role="group"
-      aria-label="Quick actions"
-    >
-      {/* ── Speed dial items (absolutely positioned to not affect FAB layout) ── */}
-      <div className={dialClass} style={{ pointerEvents: "none" }}>
+    <>
+      {/* ── Draggable FAB button ── */}
+      <div
+        ref={fabRef}
+        style={{ position: "fixed", left: x, top: y, width: FAB_SIZE, height: FAB_SIZE, zIndex: 9999 }}
+        role="group"
+        aria-label="Quick actions"
+      >
+        <button
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          aria-expanded={open}
+          aria-haspopup="true"
+          aria-label={open ? "Close quick actions" : "Open quick actions (drag to move)"}
+          style={{
+            transform: open ? "rotate(45deg)" : "rotate(0deg)",
+            transition: drag.current.active
+              ? "none"
+              : "transform 220ms ease, box-shadow 150ms ease",
+          }}
+          className="w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 text-white shadow-[0_4px_20px_rgba(0,0,0,0.28)] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 touch-none select-none cursor-grab active:cursor-grabbing"
+        >
+          <Plus className="w-6 h-6 pointer-events-none" aria-hidden="true" />
+        </button>
+      </div>
+
+      {/* ── Speed-dial overlay (separate from FAB container — prevents overflow clipping) ── */}
+      <div ref={dialRef} style={dialStyle}>
         {FAB_ACTIONS.map((action, i) => {
           const Icon = action.icon;
           const delay = open
@@ -586,8 +742,10 @@ function FABSpeedDial({
           return (
             <div
               key={action.id}
-              className="flex items-center gap-3 justify-end"
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
                 transitionDelay: delay,
                 opacity: open ? 1 : 0,
                 transform: open ? "scale(1) translateY(0)" : "scale(0.8) translateY(8px)",
@@ -595,13 +753,33 @@ function FABSpeedDial({
                 pointerEvents: open ? "auto" : "none",
               }}
             >
-              <span className="bg-slate-900/90 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap backdrop-blur-sm select-none">
+              {/* Label — left of icon, max-width prevents left-edge overflow */}
+              <span
+                style={{
+                  background: "rgba(15,23,42,0.92)",
+                  color: "#fff",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+                  backdropFilter: "blur(4px)",
+                  whiteSpace: "nowrap",
+                  userSelect: "none",
+                  maxWidth: Math.max(80, x - 8),
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  display: "block",
+                }}
+              >
                 {action.label}
               </span>
+              {/* Action button */}
               <button
                 tabIndex={open ? 0 : -1}
                 aria-label={action.label}
                 onClick={() => onAction(action.tab)}
+                style={{ flexShrink: 0 }}
                 className={`w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${action.color} ${action.ring}`}
               >
                 <Icon className="w-4.5 h-4.5" aria-hidden="true" />
@@ -610,26 +788,7 @@ function FABSpeedDial({
           );
         })}
       </div>
-
-      {/* ── Main FAB button ── */}
-      <button
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        aria-expanded={open}
-        aria-haspopup="true"
-        aria-label={open ? "Close quick actions" : "Open quick actions (drag to move)"}
-        style={{
-          transform: open ? "rotate(45deg)" : "rotate(0deg)",
-          transition: drag.current.active
-            ? "none"
-            : "transform 220ms ease, background-color 150ms ease, box-shadow 150ms ease",
-        }}
-        className="w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 text-white shadow-[0_4px_20px_rgba(0,0,0,0.28)] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 touch-none select-none cursor-grab active:cursor-grabbing"
-      >
-        <Plus className="w-6 h-6 pointer-events-none" aria-hidden="true" />
-      </button>
-    </div>
+    </>
   );
 }
 

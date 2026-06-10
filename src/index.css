@@ -183,6 +183,12 @@
   background-color: rgba(148, 163, 184, 0.6);
 }
 
+/* ── FAB bottom sheet slide-up animation ─────────────────────────────────── */
+@keyframes fabSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* ── fc-input: standard form field utility class ─────────────────────────── */
 .fc-input {
   @apply w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-sm;
