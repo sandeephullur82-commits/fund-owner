@@ -71,7 +71,7 @@ export default function OrgCustomers() {
   const [editCustomer, setEditCustomer] = useState<Membership | null>(null);
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
-  const [editNominee, setEditNominee] = useState({ name: "", relation: "", phone: "" });
+  const [editNominee, setEditNominee] = useState({ name: "", relation: "", phone: "", address: "" });
   const [editCollectorId, setEditCollectorId] = useState("");
   const [editCustomerType, setEditCustomerType] = useState<"SAVINGS" | "LOAN" | "SAVINGS_LOAN">("SAVINGS_LOAN");
   const [editNotes, setEditNotes] = useState("");
@@ -282,10 +282,12 @@ export default function OrgCustomers() {
     setEditCustomer(customer);
     setEditPhone(customer.phone || "");
     setEditAddress(customer.address || "");
+    // Read top-level nominee fields first (master source), fallback to nested object
     setEditNominee({
-      name: customer.nominee?.name || "",
-      relation: customer.nominee?.relation || "",
-      phone: customer.nominee?.phone || "",
+      name: customer.nomineeName || customer.nominee?.name || "",
+      relation: customer.nomineeRelation || customer.nominee?.relation || "",
+      phone: customer.nomineePhone || customer.nominee?.phone || "",
+      address: customer.nomineeAddress || customer.nominee?.address || "",
     });
     setEditCollectorId((customer as any).assignedAgentId || "");
     setEditCustomerType(((customer as any).customerType as any) || "SAVINGS_LOAN");
@@ -301,10 +303,15 @@ export default function OrgCustomers() {
     if (editAddress.trim().length > 500) { toast.error("Address cannot exceed 500 characters."); return; }
     const cleanPhone = editPhone ? editPhone.replace(/\D/g, "").slice(0, 10) : "";
     const cleanAddress = sanitizeMultiline(editAddress, 500);
+    const cleanNomineeName = sanitizeName(editNominee.name);
+    const cleanNomineeRelation = (editNominee.relation || "").trim();
+    const cleanNomineePhone = editNominee.phone ? editNominee.phone.replace(/\D/g, "").slice(0, 10) : "";
+    const cleanNomineeAddress = sanitizeMultiline(editNominee.address || "", 300);
     const cleanNominee = {
-      name: sanitizeName(editNominee.name),
-      relation: (editNominee.relation || "").trim(),
-      phone: editNominee.phone ? editNominee.phone.replace(/\D/g, "").slice(0, 10) : "",
+      name: cleanNomineeName,
+      relation: cleanNomineeRelation,
+      phone: cleanNomineePhone,
+      address: cleanNomineeAddress,
     };
     const cleanNotes = sanitizeMultiline(editNotes, 500);
     setSavingEdit(true);
@@ -313,6 +320,12 @@ export default function OrgCustomers() {
       const memberUpdate = {
         phone: cleanPhone || editPhone,
         address: cleanAddress,
+        // Top-level nominee fields (master source of truth for loan approval auto-load)
+        nomineeName: cleanNomineeName,
+        nomineeRelation: cleanNomineeRelation,
+        nomineePhone: cleanNomineePhone,
+        nomineeAddress: cleanNomineeAddress,
+        // Nested nominee (legacy compat — keep in sync)
         nominee: cleanNominee,
         customerType: editCustomerType,
         notes: cleanNotes,
@@ -943,12 +956,26 @@ export default function OrgCustomers() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Relation</Label>
-                  <Input value={editNominee.relation} onChange={(e) => setEditNominee({ ...editNominee, relation: e.target.value })} placeholder="Spouse, Child…" />
+                  <select value={editNominee.relation} onChange={(e) => setEditNominee({ ...editNominee, relation: e.target.value })}
+                    className="w-full h-10 px-3 rounded-md border border-slate-200 bg-white text-sm text-slate-900 focus:border-slate-400 focus:outline-none">
+                    <option value="">Select…</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Father">Father</option>
+                    <option value="Mother">Mother</option>
+                    <option value="Son">Son</option>
+                    <option value="Daughter">Daughter</option>
+                    <option value="Sibling">Sibling</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Nominee Phone</Label>
                   <Input value={editNominee.phone} onChange={(e) => setEditNominee({ ...editNominee, phone: e.target.value })} placeholder="+91…" />
                 </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400" /> Nominee Address</Label>
+                <Input value={editNominee.address} onChange={(e) => setEditNominee({ ...editNominee, address: e.target.value })} placeholder="Nominee's residential address" />
               </div>
 
               <div className="space-y-1.5">

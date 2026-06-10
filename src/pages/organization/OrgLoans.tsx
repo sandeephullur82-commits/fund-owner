@@ -747,18 +747,99 @@ export default function OrgLoans() {
           </DialogHeader>
           {approveDialogLoan && (
             <div className="space-y-4 mt-2">
-              <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-                {(() => {
-                  const cust = members.find((m) => m.id === approveDialogLoan.customerId || m.clerkUserId === approveDialogLoan.customerId);
-                  const custName = (cust as any)?.fullName || (cust as any)?.name || approveDialogLoan.customerId?.slice(-8);
-                  const loanPrincipal = approveDialogLoan.principalAmount ?? (approveDialogLoan as any).principal ?? 0;
-                  const tenure = approveDialogLoan.tenureMonths ?? (approveDialogLoan as any).durationMonths ?? 0;
-                  return (
-                    <>
+              {/* Auto-loaded customer profile */}
+              {(() => {
+                const cust = members.find((m) => m.id === approveDialogLoan.customerId || m.clerkUserId === approveDialogLoan.customerId);
+                const custName = (cust as any)?.fullName || (cust as any)?.name || approveDialogLoan.customerId?.slice(-8);
+                const loanPrincipal = approveDialogLoan.principalAmount ?? (approveDialogLoan as any).principal ?? 0;
+                const tenure = approveDialogLoan.tenureMonths ?? (approveDialogLoan as any).durationMonths ?? 0;
+                const nomineeName = (cust as any)?.nomineeName || cust?.nominee?.name || "";
+                const nomineeRelation = (cust as any)?.nomineeRelation || cust?.nominee?.relation || "";
+                const nomineePhone = (cust as any)?.nomineePhone || cust?.nominee?.phone || "";
+                const nomineeAddress = (cust as any)?.nomineeAddress || cust?.nominee?.address || "";
+                const aadhaar = (cust as any)?.aadhaarLast4 || "";
+                const ct = (cust as any)?.customerType as string | undefined;
+                const ctLabel = ct === "SAVINGS" ? "Savings Only" : ct === "LOAN" ? "Loan Only" : ct === "SAVINGS_LOAN" ? "Savings + Loan" : "—";
+                const nomineeComplete = !!(nomineeName && nomineeRelation);
+                return (
+                  <>
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer Profile</p>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Customer</span>
+                        <span className="text-slate-500">Name</span>
                         <span className="font-semibold text-slate-900">{custName}</span>
                       </div>
+                      {(cust as any)?.email && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Email</span>
+                          <span className="text-slate-700">{(cust as any).email}</span>
+                        </div>
+                      )}
+                      {(cust as any)?.phone && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Phone</span>
+                          <span className="text-slate-700">{(cust as any).phone}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Customer Type</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          ct === "SAVINGS" ? "bg-emerald-100 text-emerald-700" :
+                          ct === "LOAN" ? "bg-blue-100 text-blue-700" :
+                          "bg-violet-100 text-violet-700"
+                        }`}>{ctLabel}</span>
+                      </div>
+                      {aadhaar && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Aadhaar (last 4)</span>
+                          <span className="font-mono text-slate-700">XXXX XXXX XXXX {aadhaar}</span>
+                        </div>
+                      )}
+                      {(cust as any)?.address && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Address</span>
+                          <span className="text-slate-700 text-right max-w-[200px]">{(cust as any).address}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className={`rounded-xl p-4 space-y-2 border ${nomineeComplete ? "bg-purple-50 border-purple-100" : "bg-amber-50 border-amber-200"}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex-1">Nominee Details</p>
+                        {!nomineeComplete && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">Incomplete</span>
+                        )}
+                      </div>
+                      {nomineeName ? (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-500">Name</span>
+                            <span className="font-semibold text-slate-900">{nomineeName}</span>
+                          </div>
+                          {nomineeRelation && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Relation</span>
+                              <span className="text-slate-700">{nomineeRelation}</span>
+                            </div>
+                          )}
+                          {nomineePhone && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Phone</span>
+                              <span className="text-slate-700">{nomineePhone}</span>
+                            </div>
+                          )}
+                          {nomineeAddress && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Address</span>
+                              <span className="text-slate-700 text-right max-w-[200px]">{nomineeAddress}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs text-amber-700">No nominee on file. Ask customer to update their profile.</p>
+                      )}
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Loan Details</p>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-slate-500">Principal</span>
                         <span className="font-bold text-slate-900">₹{Number(loanPrincipal).toLocaleString()}</span>
@@ -767,10 +848,10 @@ export default function OrgLoans() {
                         <span className="text-slate-500">Tenure</span>
                         <span className="font-semibold text-slate-900">{tenure} months</span>
                       </div>
-                    </>
-                  );
-                })()}
-              </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Risk Level */}
               <div className="space-y-1.5">
@@ -844,12 +925,101 @@ export default function OrgLoans() {
           </DialogHeader>
           {approveApp && (
             <div className="space-y-4 mt-2">
-              {/* Customer details */}
-              <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Customer</span>
-                  <span className="font-semibold text-slate-900">{approveApp.customerName}</span>
-                </div>
+              {/* Auto-loaded customer profile */}
+              {(() => {
+                const cust = members.find((m) => m.id === approveApp.customerId || m.clerkUserId === approveApp.customerId);
+                const nomineeName = (cust as any)?.nomineeName || cust?.nominee?.name || "";
+                const nomineeRelation = (cust as any)?.nomineeRelation || cust?.nominee?.relation || "";
+                const nomineePhone = (cust as any)?.nomineePhone || cust?.nominee?.phone || "";
+                const nomineeAddress = (cust as any)?.nomineeAddress || cust?.nominee?.address || "";
+                const aadhaar = (cust as any)?.aadhaarLast4 || "";
+                const ct = (cust as any)?.customerType as string | undefined;
+                const ctLabel = ct === "SAVINGS" ? "Savings Only" : ct === "LOAN" ? "Loan Only" : ct === "SAVINGS_LOAN" ? "Savings + Loan" : "—";
+                const nomineeComplete = !!(nomineeName && nomineeRelation);
+                return (
+                  <>
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer Profile</p>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Name</span>
+                        <span className="font-semibold text-slate-900">{approveApp.customerName}</span>
+                      </div>
+                      {(cust as any)?.email && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Email</span>
+                          <span className="text-slate-700">{(cust as any).email}</span>
+                        </div>
+                      )}
+                      {(cust as any)?.phone && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Phone</span>
+                          <span className="text-slate-700">{(cust as any).phone}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Customer Type</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          ct === "SAVINGS" ? "bg-emerald-100 text-emerald-700" :
+                          ct === "LOAN" ? "bg-blue-100 text-blue-700" :
+                          "bg-violet-100 text-violet-700"
+                        }`}>{ctLabel}</span>
+                      </div>
+                      {aadhaar && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Aadhaar (last 4)</span>
+                          <span className="font-mono text-slate-700">XXXX XXXX XXXX {aadhaar}</span>
+                        </div>
+                      )}
+                      {(cust as any)?.address && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Address</span>
+                          <span className="text-slate-700 text-right max-w-[200px]">{(cust as any).address}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className={`rounded-xl p-4 space-y-2 border ${nomineeComplete ? "bg-purple-50 border-purple-100" : "bg-amber-50 border-amber-200"}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex-1">Nominee Details</p>
+                        {!nomineeComplete && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">Incomplete</span>
+                        )}
+                      </div>
+                      {nomineeName ? (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-500">Name</span>
+                            <span className="font-semibold text-slate-900">{nomineeName}</span>
+                          </div>
+                          {nomineeRelation && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Relation</span>
+                              <span className="text-slate-700">{nomineeRelation}</span>
+                            </div>
+                          )}
+                          {nomineePhone && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Phone</span>
+                              <span className="text-slate-700">{nomineePhone}</span>
+                            </div>
+                          )}
+                          {nomineeAddress && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Address</span>
+                              <span className="text-slate-700 text-right max-w-[200px]">{nomineeAddress}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs text-amber-700">No nominee on file. Ask customer to update their profile.</p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Application details */}
+              <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Application Details</p>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500">Requested Amount</span>
                   <span className="font-bold text-slate-900">₹{Number(approveApp.loanAmount).toLocaleString()}</span>

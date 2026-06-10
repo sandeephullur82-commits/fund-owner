@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   User, Edit3, Save, X, Phone, MapPin, Shield, Camera,
   LogOut, Calendar, Users, RefreshCw,
-  CreditCard, ChevronRight,
+  CreditCard, AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignOutButton, useClerk } from "@clerk/clerk-react";
@@ -46,7 +46,6 @@ function Field({
   );
 }
 
-
 export default function ProfileTab({ user, membershipId, membershipDoc }: Props) {
   const { signOut } = useClerk();
   const [editMode, setEditMode] = useState(false);
@@ -64,17 +63,25 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
   const [gender, setGender] = useState("");
   const [aadhaarLast4, setAadhaarLast4] = useState("");
 
-  // Nominee
+  // Nominee — read from top-level fields first, fallback to nested object
   const [nomineeName, setNomineeName] = useState("");
   const [nomineeRelation, setNomineeRelation] = useState("");
   const [nomineePhone, setNomineePhone] = useState("");
+  const [nomineeAddress, setNomineeAddress] = useState("");
 
   // Password
   const [showPwForm, setShowPwForm] = useState(false);
 
-  // Load from membershipDoc
   const mem = membershipDoc;
-  const nominee = mem?.nominee ?? {};
+
+  // Resolve nominee from top-level fields (master) or legacy nested object
+  const resolvedNomineeName = mem?.nomineeName || mem?.nominee?.name || "";
+  const resolvedNomineeRelation = mem?.nomineeRelation || mem?.nominee?.relation || "";
+  const resolvedNomineePhone = mem?.nomineePhone || mem?.nominee?.phone || "";
+  const resolvedNomineeAddress = mem?.nomineeAddress || mem?.nominee?.address || "";
+
+  // Completeness: nominee considered complete if name + relation filled
+  const nomineeComplete = !!(resolvedNomineeName && resolvedNomineeRelation);
 
   useEffect(() => {
     if (editMode) {
@@ -88,9 +95,10 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
       setDateOfBirth(mem?.dateOfBirth || "");
       setGender(mem?.gender || "");
       setAadhaarLast4(mem?.aadhaarLast4 || "");
-      setNomineeName(nominee.name || "");
-      setNomineeRelation(nominee.relation || "");
-      setNomineePhone(nominee.phone || "");
+      setNomineeName(resolvedNomineeName);
+      setNomineeRelation(resolvedNomineeRelation);
+      setNomineePhone(resolvedNomineePhone);
+      setNomineeAddress(resolvedNomineeAddress);
     }
   }, [editMode]);
 
@@ -110,10 +118,17 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
         dateOfBirth: dateOfBirth.trim(),
         gender: gender.trim(),
         aadhaarLast4: aadhaarLast4.trim(),
+        // Top-level nominee fields (master source of truth)
+        nomineeName: nomineeName.trim(),
+        nomineeRelation: nomineeRelation.trim(),
+        nomineePhone: nomineePhone.trim(),
+        nomineeAddress: nomineeAddress.trim(),
+        // Nested nominee (legacy compat — keep in sync)
         nominee: {
           name: nomineeName.trim(),
           relation: nomineeRelation.trim(),
           phone: nomineePhone.trim(),
+          address: nomineeAddress.trim(),
         },
         updatedAt: serverTimestamp(),
       });
@@ -126,12 +141,37 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
     }
   };
 
-
   const displayName = mem?.fullName || `${mem?.firstName || ""} ${mem?.lastName || ""}`.trim() || user?.fullName || "Customer";
   const displayEmail = mem?.email || user?.primaryEmailAddress?.emailAddress || "";
 
+  const customerTypeLabel = (ct?: string) => {
+    if (ct === "SAVINGS") return "Savings Only";
+    if (ct === "LOAN") return "Loan Only";
+    if (ct === "SAVINGS_LOAN") return "Savings + Loan";
+    return "Savings + Loan";
+  };
+
   return (
     <div className="space-y-4">
+      {/* Nominee incomplete warning */}
+      {!nomineeComplete && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Nominee details incomplete</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              Please fill in your nominee information. This is required for loan and savings account protection.
+            </p>
+          </div>
+          <button
+            onClick={() => setEditMode(true)}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0 underline underline-offset-2"
+          >
+            Update now
+          </button>
+        </div>
+      )}
+
       {/* Profile Header */}
       <Card>
         <CardContent className="p-5">
@@ -157,15 +197,20 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
             <div className="flex-1 min-w-0">
               <p className="font-bold text-slate-900 dark:text-white text-lg leading-tight truncate">{displayName}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{displayEmail}</p>
-              {mem?.status && (
-                <span className={`mt-1.5 inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  mem.status === "ACTIVE"
-                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                    : "bg-slate-100 text-slate-500"
-                }`}>
-                  {mem.status}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {mem?.status && (
+                  <span className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    mem.status === "ACTIVE"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                      : "bg-slate-100 text-slate-500"
+                  }`}>
+                    {mem.status}
+                  </span>
+                )}
+                <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
+                  {customerTypeLabel(mem?.customerType)}
                 </span>
-              )}
+              </div>
             </div>
             <button
               onClick={() => setEditMode(!editMode)}
@@ -255,22 +300,46 @@ export default function ProfileTab({ user, membershipId, membershipDoc }: Props)
       </Card>
 
       {/* Nominee */}
-      <Card>
+      <Card className={!nomineeComplete ? "ring-1 ring-amber-300 dark:ring-amber-700" : ""}>
         <CardHeader className="pb-0">
           <CardTitle className="text-sm flex items-center gap-2">
             <Shield className="w-4 h-4 text-purple-500" />
             Nominee Details
+            {!nomineeComplete && (
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                Incomplete
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4 space-y-4">
-          <Field label="Nominee Name" value={editMode ? nomineeName : (nominee.name || "")}
+          <Field label="Nominee Name" value={editMode ? nomineeName : resolvedNomineeName}
             editMode={editMode} onChange={setNomineeName} placeholder="Full name of nominee" />
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Relationship" value={editMode ? nomineeRelation : (nominee.relation || "")}
-              editMode={editMode} onChange={setNomineeRelation} placeholder="e.g. Spouse" />
-            <Field label="Nominee Phone" value={editMode ? nomineePhone : (nominee.phone || "")}
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Relationship</p>
+              {editMode ? (
+                <select value={nomineeRelation} onChange={(e) => setNomineeRelation(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30">
+                  <option value="">Select…</option>
+                  <option value="Spouse">Spouse</option>
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Son">Son</option>
+                  <option value="Daughter">Daughter</option>
+                  <option value="Sibling">Sibling</option>
+                  <option value="Other">Other</option>
+                </select>
+              ) : (
+                <p className="text-slate-900 dark:text-white text-sm">{resolvedNomineeRelation || <span className="text-slate-400">—</span>}</p>
+              )}
+            </div>
+            <Field label="Nominee Phone" value={editMode ? nomineePhone : resolvedNomineePhone}
               editMode={editMode} onChange={setNomineePhone} placeholder="+91 ..." />
           </div>
+          <Field label="Nominee Address" value={editMode ? nomineeAddress : resolvedNomineeAddress}
+            editMode={editMode} onChange={setNomineeAddress} placeholder="Nominee's residential address"
+            icon={<MapPin className="w-4 h-4 text-slate-400" />} />
         </CardContent>
       </Card>
 

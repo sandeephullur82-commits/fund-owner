@@ -49,10 +49,17 @@ export interface Membership {
   dateOfBirth?: string;
   gender?: string;
   profilePhotoUrl?: string;
+  // Nominee — top-level (master source of truth; also mirrored in nested `nominee` for legacy compat)
+  nomineeName?: string;
+  nomineeRelation?: string;
+  nomineePhone?: string;
+  nomineeAddress?: string;
+  // Nominee — nested (legacy; kept for backward compat)
   nominee?: {
     name?: string;
     relation?: string;
     phone?: string;
+    address?: string;
   };
   aadhaarLast4?: string;
   // Agent-specific

@@ -88,7 +88,12 @@ export default function CustomerDashboard() {
   );
 
   // Derive visible nav items from customerType (must be after membershipDoc hook)
-  const customerType = (membershipDoc?.customerType as string | undefined);
+  // If membershipDoc is loaded but has no customerType, default to SAVINGS_LOAN
+  const membershipLoaded = membershipDoc !== undefined;
+  const rawCustomerType = membershipDoc?.customerType as string | undefined;
+  const customerType: string = rawCustomerType || "SAVINGS_LOAN";
+  const missingCustomerType = membershipLoaded && !rawCustomerType;
+
   const visibleTabIds: Tab[] = customerType === "SAVINGS"
     ? SAVINGS_TABS
     : customerType === "LOAN"
@@ -171,6 +176,13 @@ export default function CustomerDashboard() {
     `${membershipDoc?.firstName || ""} ${membershipDoc?.lastName || ""}`.trim() ||
     user?.fullName ||
     "Customer";
+
+  // When customerType changes (realtime), reset active tab if it's no longer visible
+  React.useEffect(() => {
+    if (!visibleTabIds.includes(activeTab)) {
+      setActiveTab("dashboard");
+    }
+  }, [customerType]);
 
   const navigate = (tab: Tab) => {
     setActiveTab(tab);
@@ -562,6 +574,18 @@ export default function CustomerDashboard() {
         {/* ── Scrollable content ───────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto pb-24 md:pb-6">
           <div className="max-w-2xl mx-auto px-4 py-5 md:px-6">
+            {/* Missing customerType banner — shown to customer, prompts owner to review */}
+            {missingCustomerType && (
+              <div className="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Account type not set</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    Your account type hasn't been configured yet. All features are enabled by default. Please contact your organization to confirm your account type.
+                  </p>
+                </div>
+              </div>
+            )}
             {renderTab()}
           </div>
         </main>
