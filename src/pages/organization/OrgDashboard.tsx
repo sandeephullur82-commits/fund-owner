@@ -1,9 +1,9 @@
 import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
-  Bell, Menu, CalendarDays, ClipboardList, LayoutDashboard,
+  Bell, Menu, LayoutDashboard,
   ArrowUpCircle, X, Plus, UserPlus, UserCheck, PiggyBank,
-  Landmark, IndianRupee, CheckCircle2, BarChart2,
+  Landmark, IndianRupee, CheckCircle2, BarChart2, ClipboardList,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
@@ -31,9 +31,6 @@ import OrgSettings from "./OrgSettings";
 import OrgBilling from "./OrgBilling";
 import OrgAuditLogs from "./OrgAuditLogs";
 import OrgSavings from "./OrgSavings";
-import AgentOverview from "../agent/AgentOverview";
-import AgentCustomers from "../agent/AgentCustomers";
-
 const BOTTOM_NAV_ADMIN = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "customers", label: "Customers", icon: Users },
@@ -42,17 +39,10 @@ const BOTTOM_NAV_ADMIN = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const BOTTOM_NAV_COLLECTOR = [
-  { id: "daily", label: "Today", icon: CalendarDays },
-  { id: "customerLedger", label: "Customers", icon: Users },
-  { id: "collectionEntry", label: "Collections", icon: ClipboardList },
-];
-
 export default function OrgDashboard() {
   const { isLoaded: isUserLoaded, user, isSignedIn } = useUser();
   const { isLoaded: isOrgLoaded, organization, membership: clerkOrgMembership } = useOrganization();
   const [activeTab, setActiveTab] = useState("overview");
-  const [mode, setMode] = useState<"admin" | "collector">("admin");
   const [fabOpen, setFabOpen] = useState(false);
 
   useEffect(() => {
@@ -163,13 +153,7 @@ export default function OrgDashboard() {
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
-  const collectorMenuItems = [
-    { id: "daily", label: "Today's Route", icon: CalendarDays },
-    { id: "customerLedger", label: "Customer Ledger", icon: Users },
-    { id: "collectionEntry", label: "Collection Entry", icon: ClipboardList },
-  ];
-
-  const menuItems = mode === "admin" ? adminMenuItems : collectorMenuItems;
+  const menuItems = adminMenuItems;
 
   useEffect(() => {
     if (user && organization) {
@@ -238,22 +222,6 @@ export default function OrgDashboard() {
             <span className="font-semibold text-slate-700 truncate max-w-[120px] text-sm">{orgName}</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {isOwner && (
-              <div className="flex rounded-lg bg-slate-100 p-0.5 gap-0.5 mr-1">
-                <button
-                  onClick={() => { setMode("admin"); setActiveTab("overview"); }}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${mode === "admin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                >
-                  Admin
-                </button>
-                <button
-                  onClick={() => { setMode("collector"); setActiveTab("daily"); }}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${mode === "collector" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                >
-                  Collector
-                </button>
-              </div>
-            )}
             <Sheet>
               <SheetTrigger render={
                 <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -267,9 +235,6 @@ export default function OrgDashboard() {
                   orgName={orgName}
                   user={user}
                   menuItems={menuItems}
-                  isOwner={isOwner}
-                  mode={mode}
-                  setMode={setMode}
                   unreadCount={unreadCount}
                   membershipLoading={membershipDocLoading}
                 />
@@ -287,9 +252,6 @@ export default function OrgDashboard() {
           orgName={orgName}
           user={user}
           menuItems={menuItems}
-          isOwner={isOwner}
-          mode={mode}
-          setMode={setMode}
           unreadCount={unreadCount}
           membershipLoading={membershipDocLoading}
         />
@@ -353,17 +315,12 @@ export default function OrgDashboard() {
           <TabsContent value="billing" className="mt-0"><OrgBilling /></TabsContent>
           <TabsContent value="settings" className="mt-0"><OrgSettings /></TabsContent>
           <TabsContent value="auditLogs" className="mt-0"><OrgAuditLogs /></TabsContent>
-          <TabsContent value="daily" className="mt-0"><AgentOverview /></TabsContent>
-          <TabsContent value="customerLedger" className="mt-0">
-            <AgentCustomers collectorRole={isOwner ? "OWNER" : "AGENT"} collectorName={user?.fullName || ""} collectorId={user?.id || ""} />
-          </TabsContent>
-          <TabsContent value="collectionEntry" className="mt-0"><OrgCollections /></TabsContent>
         </Tabs>
       </main>
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
-        {(mode === "admin" ? BOTTOM_NAV_ADMIN : BOTTOM_NAV_COLLECTOR).map((item) => {
+        {BOTTOM_NAV_ADMIN.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
@@ -382,7 +339,7 @@ export default function OrgDashboard() {
       </nav>
 
       {/* Quick Actions FAB — dashboard tab only */}
-      {mode === "admin" && activeTab === "overview" && (
+      {activeTab === "overview" && (
         <QuickActionsFAB
           open={fabOpen}
           setOpen={setFabOpen}
@@ -851,41 +808,13 @@ function QuickActionsFAB({
   );
 }
 
-function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, isOwner, mode, setMode, unreadCount, membershipLoading }: any) {
+function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, unreadCount, membershipLoading }: any) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <BrandMark />
         <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{orgName}</p>
       </div>
-
-      {/* Mode Switch — skeleton while role loads */}
-      {membershipLoading ? (
-        <div className="px-4 pt-4 pb-2">
-          <Skeleton className="h-9 rounded-xl w-full" />
-        </div>
-      ) : isOwner ? (
-        <div className="px-4 pt-4 pb-2">
-          <div className="flex rounded-xl bg-slate-100 p-1 gap-1">
-            <button
-              onClick={() => { setMode("admin"); setActiveTab("overview"); }}
-              className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                mode === "admin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Admin
-            </button>
-            <button
-              onClick={() => { setMode("collector"); setActiveTab("daily"); }}
-              className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition-all ${
-                mode === "collector" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Collector
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       <div className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto scrollbar-hide">
         {membershipLoading
