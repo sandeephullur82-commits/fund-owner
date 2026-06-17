@@ -1,8 +1,7 @@
 import { useUser, useOrganization, useOrganizationList, SignOutButton } from "@clerk/clerk-react";
 import {
-  LogOut, Users, History,
-  AlertCircle, Menu, LayoutDashboard, ChevronDown, Check, Building2, CreditCard,
-  ShieldCheck, TrendingUp,
+  CalendarDays, Users, Wallet, History, User,
+  Menu, Check, Building2, ChevronDown, LogOut,
 } from "lucide-react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -14,50 +13,55 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { BrandMark } from "@/components/BrandLogo";
 import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
-import AgentPending from "./AgentPending";
+import AgentCollections from "./AgentCollections";
 import AgentHistory from "./AgentHistory";
-import AgentEMICollection from "./AgentEMICollection";
-import AgentLoanVerification from "./AgentLoanVerification";
+import AgentProfile from "./AgentProfile";
 
-const menuItems = [
-  { id: "overview", label: "Today's Summary", icon: LayoutDashboard },
-  { id: "pending", label: "Pending Visits", icon: AlertCircle },
-  { id: "emi", label: "EMI Collection", icon: CreditCard },
-  { id: "verification", label: "Loan Verification", icon: ShieldCheck },
-  { id: "customers", label: "My Customers", icon: Users },
-  { id: "history", label: "Collection History", icon: History },
+const BOTTOM_NAV = [
+  { id: "today",       label: "Today",       icon: CalendarDays },
+  { id: "customers",   label: "Customers",   icon: Users },
+  { id: "collections", label: "Collections", icon: Wallet },
+  { id: "history",     label: "History",     icon: History },
+  { id: "profile",     label: "Profile",     icon: User },
+];
+
+const SIDEBAR_ITEMS = [
+  { id: "today",       label: "Today's Route",     icon: CalendarDays },
+  { id: "customers",   label: "My Customers",       icon: Users },
+  { id: "collections", label: "Collections",        icon: Wallet },
+  { id: "history",     label: "Collection History", icon: History },
+  { id: "profile",     label: "Profile",            icon: User },
 ];
 
 export default function AgentDashboard() {
   const { isLoaded: isUserLoaded, isSignedIn, user } = useUser();
   const { isLoaded: isOrgLoaded, organization } = useOrganization();
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("today");
+
+  useEffect(() => {
+    const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
+    window.addEventListener("fundcircle:agentSwitchTab", handler);
+    return () => window.removeEventListener("fundcircle:agentSwitchTab", handler);
+  }, []);
 
   if (!isUserLoaded || !isOrgLoaded) {
     return (
       <div className="min-h-screen bg-slate-50 flex">
         <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-screen">
           <div className="p-5 border-b border-slate-100">
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-10 w-10 rounded-xl" />
-              <div className="space-y-1.5 flex-1">
-                <Skeleton className="h-2.5 w-20" />
-                <Skeleton className="h-3 w-32" />
-              </div>
-            </div>
+            <Skeleton className="h-8 w-32 mb-2" />
+            <Skeleton className="h-4 w-24" />
           </div>
           <div className="flex-1 p-3 space-y-1">
-            {menuItems.map((_, i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
+            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
           </div>
           <div className="p-3 border-t border-slate-100">
             <Skeleton className="h-14 rounded-xl" />
           </div>
         </div>
         <div className="flex-1 p-6 space-y-4">
-          <Skeleton className="h-8 w-48" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Skeleton className="h-28 rounded-2xl" />
-            <Skeleton className="h-28 rounded-2xl" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
           </div>
           <Skeleton className="h-64 rounded-2xl" />
         </div>
@@ -71,7 +75,15 @@ export default function AgentDashboard() {
     <div className="flex flex-col md:flex-row md:h-screen min-h-screen bg-slate-50">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
-        <BrandMark size="sm" />
+        <div className="flex items-center gap-2 min-w-0">
+          <BrandMark size="sm" />
+          {organization && (
+            <>
+              <span className="text-slate-300 font-light">·</span>
+              <span className="text-xs font-semibold text-slate-500 truncate max-w-[100px]">{organization.name}</span>
+            </>
+          )}
+        </div>
         <Sheet>
           <SheetTrigger render={
             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -79,54 +91,41 @@ export default function AgentDashboard() {
             </Button>
           } />
           <SheetContent side="left" className="w-[280px] p-0">
-            <AgentSidebar
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              user={user}
-              organization={organization}
-            />
+            <AgentSidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} organization={organization} />
           </SheetContent>
         </Sheet>
       </div>
 
       {/* Desktop Sidebar */}
       <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-full shrink-0 shadow-sm">
-        <AgentSidebar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          user={user}
-          organization={organization}
-        />
+        <AgentSidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} organization={organization} />
       </div>
 
       {/* Main Content */}
       <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3 md:p-8 w-full max-w-5xl mx-auto pb-24 md:pb-10">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="hidden" />
-          <TabsContent value="overview" className="mt-0">
-            <AgentOverview />
-          </TabsContent>
-          <TabsContent value="pending" className="mt-0">
-            <AgentPending />
-          </TabsContent>
-          <TabsContent value="emi" className="mt-0">
-            <AgentEMICollection />
+          <TabsContent value="today" className="mt-0">
+            <AgentOverview onSwitchTab={setActiveTab} />
           </TabsContent>
           <TabsContent value="customers" className="mt-0">
-            <AgentCustomers />
+            <AgentCustomers onCollect={() => setActiveTab("collections")} />
           </TabsContent>
-          <TabsContent value="verification" className="mt-0">
-            <AgentLoanVerification />
+          <TabsContent value="collections" className="mt-0">
+            <AgentCollections />
           </TabsContent>
           <TabsContent value="history" className="mt-0">
             <AgentHistory />
+          </TabsContent>
+          <TabsContent value="profile" className="mt-0">
+            <AgentProfile />
           </TabsContent>
         </Tabs>
       </main>
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
-        {menuItems.map((item) => {
+        {BOTTOM_NAV.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
@@ -137,8 +136,8 @@ export default function AgentDashboard() {
                 isActive ? "text-emerald-600" : "text-slate-400"
               }`}
             >
-              <Icon className="w-5 h-5" />
-              <span className="text-[10px] font-semibold leading-none">{item.label.split(" ")[0]}</span>
+              <Icon className={`w-5 h-5 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
+              <span className="text-[10px] font-semibold leading-none">{item.label}</span>
             </button>
           );
         })}
@@ -175,8 +174,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
     try {
       await setActive({ organization: orgId });
       navigate("/router", { replace: true });
-    } catch (err) {
-      console.error("[FC AgentDashboard] Failed to switch org:", err);
+    } catch {
       setSwitching(false);
     }
   };
@@ -185,38 +183,30 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
     <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
       <div className="px-5 py-4 border-b border-slate-100 shrink-0">
         <BrandMark />
-
         {hasMultipleOrgs ? (
           <div className="relative mt-1.5" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
               disabled={switching}
-              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors w-full text-left group"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors w-full text-left"
             >
               <Building2 className="w-3.5 h-3.5 shrink-0 text-slate-400" />
               <span className="truncate flex-1">{organization?.name || "Select Organization"}</span>
-              <ChevronDown
-                className={`w-3 h-3 shrink-0 text-slate-400 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
-              />
+              <ChevronDown className={`w-3 h-3 shrink-0 text-slate-400 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
             </button>
-
             {dropdownOpen && (
               <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden">
                 <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
                   Switch Organization
                 </p>
                 {memberships.map((m: any) => {
-                  const id = m.organization?.id;
+                  const id   = m.organization?.id;
                   const name = m.organization?.name || id;
                   const isActive = id === organization?.id;
                   return (
-                    <button
-                      key={id}
-                      onClick={() => handleSwitchOrg(id)}
+                    <button key={id} onClick={() => handleSwitchOrg(id)}
                       className={`w-full text-left px-3 py-2.5 text-xs font-medium transition-colors flex items-center gap-2.5 ${
-                        isActive
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "text-slate-700 hover:bg-slate-50"
+                        isActive ? "bg-emerald-50 text-emerald-700" : "text-slate-700 hover:bg-slate-50"
                       }`}
                     >
                       <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-emerald-500" : "bg-slate-300"}`} />
@@ -236,8 +226,8 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
       </div>
 
       <div className="flex-1 py-3 px-3 space-y-0.5">
-        {menuItems.map((item) => {
-          const Icon = item.icon;
+        {SIDEBAR_ITEMS.map((item) => {
+          const Icon    = item.icon;
           const isActive = activeTab === item.id;
           return (
             <button

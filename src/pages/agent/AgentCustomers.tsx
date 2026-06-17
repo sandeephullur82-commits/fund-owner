@@ -1,444 +1,313 @@
-import React, { useState } from "react";
-import { useCollectionRealtime, useDocumentRealtime } from "@/lib/firestore-hooks";
-import { Membership } from "@/types";
+import { useState } from "react";
+import { useCollectionRealtime } from "@/lib/firestore-hooks";
+import { Membership, Collection, Loan } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { Search, IndianRupee, UserPlus, Loader2 } from "lucide-react";
-import { useUser, useOrganization, useAuth } from "@clerk/clerk-react";
-import { createDirectMember, validateCustomerEmail, requestPlanUpgrade, recordSavingsCollection } from "@/lib/services";
-import FieldError from "@/components/ui/FieldError";
-import { sanitizeName, sanitizeEmail, validateEmail, validatePhone10, validateLettersOnlyName } from "@/lib/validation";
+import {
+  ChevronDown, ChevronUp, PiggyBank, CreditCard, IndianRupee, Users,
+  Phone, MapPin, UserCheck, Layers,
+} from "lucide-react";
+import { format, startOfDay } from "date-fns";
+import { useUser, useOrganization } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
-import PlanLimitModal from "@/components/PlanLimitModal";
+import CollectDialog, { TYPE_BADGE, TYPE_LABEL, getCustomerType, toDate } from "@/components/agent/CollectDialog";
 
-type AgentCustomersProps = {
-  collectorRole?: "OWNER" | "AGENT" | string;
-  collectorName?: string;
-  collectorId?: string;
-};
+type TypeFilter = "ALL" | "SAVINGS" | "LOAN" | "SAVINGS_LOAN";
 
-export default function AgentCustomers({ collectorRole = "AGENT", collectorName = "", collectorId = "" }: AgentCustomersProps) {
-  const { user } = useUser();
+interface AgentCustomersProps {
+  onCollect?: () => void;
+}
+
+export default function AgentCustomers({ onCollect }: AgentCustomersProps) {
+  const { user }         = useUser();
   const { organization } = useOrganization();
-  const { getToken } = useAuth();
 
-  const agentId = user?.id || "";
-  const activeCollectorRole = collectorRole || "AGENT";
-  const activeCollectorName = collectorName || user?.fullName || "Collector";
-  const activeCollectorId = collectorId || user?.id || "";
+  const agentId   = user?.id || "";
+  const agentName = user?.fullName || user?.primaryEmailAddress?.emailAddress || "Agent";
+  const orgId     = organization?.id || "";
+  const orgName   = organization?.name || "FundCircle";
 
-  const { data: orgDoc } = useDocumentRealtime<any>("organizations", organization?.id ?? null);
-  // Firestore-level filter: only fetch customers assigned to this agent
   const { data: allCustomers, loading } = useCollectionRealtime<Membership>("organizationMembers", [
     where("role", "==", "CUSTOMER"),
     where("assignedAgentId", "==", agentId || "NONE"),
   ]);
-  // Separate org-wide count for plan limit checking
-  const { data: orgCustomers } = useCollectionRealtime<Membership>("organizationMembers", [
-    where("role", "==", "CUSTOMER"),
+  const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
+  const { data: loans }           = useCollectionRealtime<Loan>("loans", [where("status", "==", "ACTIVE")]);
+  const { data: collections }     = useCollectionRealtime<Collection>("collections", [
+    where("agentId", "==", agentId || "NONE"),
   ]);
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
-  const [amount, setAmount] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [typeFilter, setTypeFilter]       = useState<TypeFilter>("ALL");
+  const [expandedId, setExpandedId]       = useState<string | null>(null);
+  const [collectCustomer, setCollectCustomer] = useState<any | null>(null);
 
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [addEmail, setAddEmail] = useState("");
-  const [addPhone, setAddPhone] = useState("");
-  const [isValidating, setIsValidating] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [createdPassword, setCreatedPassword] = useState<string | null>(null);
+  const today = startOfDay(new Date());
 
-  const [showLimitModal, setShowLimitModal] = useState(false);
-  const [isRequestingUpgrade, setIsRequestingUpgrade] = useState(false);
-  const [upgradeRequestSent, setUpgradeRequestSent] = useState(false);
+  const activeCustomers = allCustomers.filter((c) => (c as any).status === "ACTIVE");
 
-  const currentPlan = orgDoc?.plan ?? "free";
-  const PLAN_CUSTOMER_DEFAULTS: Record<string, number> = { free: 10, starter: 100, growth: 500, enterprise: 5000 };
-  const maxCustomers: number = Math.max(orgDoc?.limits?.maxCustomers || PLAN_CUSTOMER_DEFAULTS[currentPlan] || 10, 1);
-  // Use org-wide count for limit enforcement
-  const activeCustomerCount = orgCustomers.filter((c: any) => c.status === "ACTIVE").length;
-  const pendingCustomerCount = allCustomers.filter((c: any) => c.status === "PENDING_SETUP").length;
-  const atLimit = activeCustomerCount >= maxCustomers;
+  const filtered = activeCustomers
+    .filter((c) => {
+      if (typeFilter === "ALL") return true;
+      return getCustomerType(c) === typeFilter;
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
 
-  // Debug logging (Check 9)
-  console.log("[FC AgentCustomers] Clerk user ID:", agentId);
-  console.log("[FC AgentCustomers] Org ID:", organization?.id);
-  console.log("[FC AgentCustomers] Customers returned:", allCustomers.length, allCustomers.map((c: any) => ({ id: c.id, assignedAgentId: c.assignedAgentId, status: c.status })));
+  const getSavingsAccount = (customer: Membership) =>
+    savingsAccounts.find((s: any) => s.customerId === customer.id || s.customerId === customer.clerkUserId);
 
-  // allCustomers is already Firestore-scoped to this agent; just apply search filter
-  const myCustomers = allCustomers.filter((c: any) => {
-    return !searchTerm ||
-      ((c.fullName || c.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.phone || "").includes(searchTerm) ||
-      (c.email || "").toLowerCase().includes(searchTerm.toLowerCase());
-  });
+  const getActiveLoan = (customer: Membership) =>
+    loans.find((l) => (l.customerId === customer.id || l.customerId === customer.clerkUserId) && l.status === "ACTIVE");
 
-  const handleAddCustomerClick = () => {
-    if (atLimit) {
-      setShowLimitModal(true);
-    } else {
-      setShowAddCustomer(true);
-    }
+  const getLastCollection = (customer: Membership) => {
+    const custCols = collections
+      .filter((c) => c.customerId === customer.id || c.customerId === customer.clerkUserId)
+      .sort((a, b) => toDate(b.collectedAt || (b as any).timestamp).valueOf() - toDate(a.collectedAt || (a as any).timestamp).valueOf());
+    return custCols[0] || null;
   };
 
-  const handleRequestUpgrade = async () => {
-    if (!organization?.id || !user?.id) return;
-    setIsRequestingUpgrade(true);
-    try {
-      await requestPlanUpgrade({
-        organizationId: organization.id,
-        agentId: user.id,
-        agentName: user.fullName || user.primaryEmailAddress?.emailAddress || "Collector",
-        currentPlan,
-      });
-      setUpgradeRequestSent(true);
-      toast.success("Upgrade request sent to your organization owner.");
-    } catch {
-      toast.error("Failed to send upgrade request.");
-    } finally {
-      setIsRequestingUpgrade(false);
-    }
+  const collectedToday = (customer: Membership) => {
+    const todayCollections = collections.filter((c) => toDate(c.collectedAt || (c as any).timestamp) >= today);
+    return todayCollections.some((c) => c.customerId === customer.id || c.customerId === customer.clerkUserId);
   };
 
-  const resetAddForm = () => {
-    setFirstName(""); setLastName(""); setAddEmail(""); setAddPhone("");
-    setCreatedPassword(null); setAddErrors({});
-  };
+  const shortId = (id: string) => `FC-${id.slice(-6).toUpperCase()}`;
 
-  const handleAddCustomerSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!organization?.id || !user?.id) return;
-    if (atLimit) {
-      setShowAddCustomer(false);
-      setShowLimitModal(true);
-      return;
-    }
-    const errors: Record<string, string> = {};
-    const fnRes = validateLettersOnlyName(firstName, { label: "First name" });
-    if (!fnRes.valid) errors.firstName = fnRes.error!;
-    const emailRes = validateEmail(addEmail);
-    if (!emailRes.valid) errors.email = emailRes.error!;
-    if (addPhone.trim()) {
-      const phoneRes = validatePhone10(addPhone);
-      if (!phoneRes.valid) errors.phone = phoneRes.error!;
-    }
-    if (Object.values(errors).some(Boolean)) {
-      setAddErrors(errors);
-      toast.error("Please fix the highlighted errors.");
-      return;
-    }
-    setAddErrors({});
-
-    const emailKey = addEmail.trim().toLowerCase();
-
-    setIsValidating(true);
-    try {
-      await validateCustomerEmail(organization.id, emailKey, addPhone.trim());
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Validation failed");
-      setIsValidating(false);
-      return;
-    } finally {
-      setIsValidating(false);
-    }
-
-    setIsAdding(true);
-    try {
-      let authToken = await getToken();
-      if (!authToken) authToken = await getToken({ skipCache: true });
-      const { generatedPassword } = await createDirectMember({
-        firstName: sanitizeName(firstName),
-        lastName: sanitizeName(lastName),
-        email: emailKey,
-        phone: addPhone.replace(/\D/g, "").slice(0, 10),
-        role: "CUSTOMER",
-        organizationId: organization.id,
-        organizationName: organization.name || "",
-        assignedAgentId: agentId,
-        assignedAgentName: activeCollectorName,
-        createdBy: user.id,
-        actorName: activeCollectorName,
-        authToken: authToken || undefined,
-      });
-      setCreatedPassword(generatedPassword);
-      toast.success("Customer account created successfully!");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to create customer account.");
-    } finally {
-      setIsAdding(false);
-    }
-  };
-
-  const handleCollect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!organization?.id || !selectedCustomer) return;
-    const collectAmount = Number(amount);
-    if (collectAmount <= 0) return toast.error("Enter a valid amount");
-
-    const memberRecord = selectedCustomer as any;
-    if (memberRecord.status !== "ACTIVE") {
-      return toast.error("This customer has not activated their account yet.");
-    }
-
-    setIsSubmitting(true);
-    try {
-      await recordSavingsCollection({
-        organizationId: organization.id,
-        organizationName: organization.name || "FundCircle",
-        customerId: memberRecord.id,
-        agentId: activeCollectorId,
-        agentName: activeCollectorName,
-        amount: collectAmount,
-      });
-      toast.success(`₹${collectAmount.toLocaleString()} collected successfully`);
-      setSelectedCustomer(null);
-      setAmount("");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to record collection");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const FILTER_TABS: { id: TypeFilter; label: string; icon: any }[] = [
+    { id: "ALL",          label: "All",     icon: Users },
+    { id: "SAVINGS",      label: "Savings", icon: PiggyBank },
+    { id: "LOAN",         label: "Loan",    icon: CreditCard },
+    { id: "SAVINGS_LOAN", label: "S+L",     icon: Layers },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <Input
-            placeholder="Search your customers..."
-            className="pl-10 h-12 bg-white"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">My Customers</h2>
+          <p className="text-sm text-slate-500">{activeCustomers.length} assigned · sorted by ID</p>
         </div>
-        <Button
-          onClick={handleAddCustomerClick}
-          className="h-12 px-4 gap-2 bg-emerald-600 hover:bg-emerald-700 shrink-0"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span className="hidden sm:inline">Add Customer</span>
-        </Button>
       </div>
 
-      {atLimit && (
-        <div className="flex items-center gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm">
-          <span className="text-amber-600 font-bold">⚠</span>
-          <span className="text-amber-800">
-            Customer limit reached ({activeCustomerCount}/{maxCustomers}). Contact your owner to upgrade.
-          </span>
+      {/* Type filter */}
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+        {FILTER_TABS.map(({ id, label, icon: Icon }) => (
           <button
-            onClick={() => setShowLimitModal(true)}
-            className="ml-auto text-xs font-semibold text-amber-700 underline underline-offset-2 shrink-0"
+            key={id}
+            onClick={() => setTypeFilter(id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap transition-colors ${
+              typeFilter === id
+                ? "bg-emerald-600 text-white border-emerald-600"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+            }`}
           >
-            Request Upgrade
+            <Icon className="w-3.5 h-3.5" /> {label}
           </button>
-        </div>
-      )}
-      {pendingCustomerCount > 0 && !atLimit && (
-        <div className="flex items-center gap-2 rounded-2xl bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
-          <span className="font-semibold">{pendingCustomerCount}</span> customer{pendingCustomerCount > 1 ? "s" : ""} pending account setup
-        </div>
-      )}
+        ))}
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          <div className="col-span-full text-center py-8">Loading...</div>
-        ) : myCustomers.length === 0 ? (
-          <div className="col-span-full text-center py-12 text-slate-400">
-            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
-              <Search className="w-8 h-8 text-slate-300" />
-            </div>
-            <p className="font-medium text-slate-500">No customers found</p>
-            <p className="text-xs mt-1">Use the "Add Customer" button to create a new account</p>
-          </div>
-        ) : (
-          myCustomers.map(customer => {
-            const c = customer as any;
-            const isActive = c.status === "ACTIVE";
-            const displayName = c.fullName || c.name || c.email || "Customer";
+      {/* Customer list */}
+      {loading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-slate-100 rounded-2xl animate-pulse" />)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-14 text-slate-400">
+          <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-medium text-slate-500">No customers found</p>
+          <p className="text-xs mt-1">
+            {typeFilter !== "ALL" ? "Try a different filter." : "No customers assigned yet."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map((customer) => {
+            const c            = customer as any;
+            const name         = c.fullName || c.name || c.email || "";
+            const cType        = getCustomerType(customer);
+            const isExpanded   = expandedId === customer.id;
+            const savAcc       = getSavingsAccount(customer);
+            const loan         = getActiveLoan(customer);
+            const lastCol      = getLastCollection(customer);
+            const isDoneToday  = collectedToday(customer);
+
             return (
-              <Card key={customer.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <h3 className="font-bold text-lg text-slate-900">{displayName}</h3>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
-                          isActive
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                            : "bg-amber-50 text-amber-700 border-amber-100"
-                        }`}>
-                          {isActive ? "Active" : "Pending"}
-                        </span>
+              <Card
+                key={customer.id}
+                className={`overflow-hidden transition-shadow ${isExpanded ? "shadow-md border-emerald-200" : "shadow-sm"}`}
+              >
+                {/* Collapsed card */}
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : customer.id)}
+                  className="w-full text-left"
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-bold text-slate-900 truncate">{name}</p>
+                          <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${TYPE_BADGE[cType]}`}>
+                            {TYPE_LABEL[cType]}
+                          </span>
+                          {isDoneToday && (
+                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              ✓ Done
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 mb-2">{shortId(customer.id)} · {c.phone || c.email || "—"}</p>
+                        <div className="flex items-center gap-4">
+                          {savAcc && (
+                            <div className="flex items-center gap-1">
+                              <PiggyBank className="w-3 h-3 text-emerald-500" />
+                              <span className="text-xs font-semibold text-emerald-700">₹{(savAcc.totalBalance || 0).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {loan && (
+                            <div className="flex items-center gap-1">
+                              <CreditCard className="w-3 h-3 text-indigo-500" />
+                              <span className="text-xs font-semibold text-indigo-700">₹{(loan.outstandingBalance ?? 0).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {!savAcc && !loan && (
+                            <span className="text-xs text-slate-400 italic">No active accounts</span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm text-slate-500">{c.phone || c.email}</p>
+                      <div className={`shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </button>
+
+                {/* Expanded details */}
+                {isExpanded && (
+                  <div className="border-t border-slate-100 bg-slate-50/60 px-4 pb-4 pt-3 space-y-4">
+                    {/* Full info */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer Details</p>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-slate-600">{shortId(customer.id)}</span>
+                          </div>
+                          {c.phone && (
+                            <div className="flex items-center gap-2">
+                              <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="text-slate-600">{c.phone}</span>
+                            </div>
+                          )}
+                          {c.address && (
+                            <div className="flex items-start gap-2">
+                              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                              <span className="text-slate-600 text-xs leading-relaxed">{c.address}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {(c.nomineeName || c.nomineePhone || c.nomineeRelation) && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nominee</p>
+                          <div className="space-y-1 text-sm text-slate-600">
+                            {c.nomineeName     && <p>{c.nomineeName}</p>}
+                            {c.nomineePhone    && <p className="flex items-center gap-1.5"><Phone className="w-3 h-3 text-slate-400" />{c.nomineePhone}</p>}
+                            {c.nomineeRelation && <p className="text-xs text-slate-400">{c.nomineeRelation}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Savings details */}
+                    {savAcc && (
+                      <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-2">Savings Account</p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            {savAcc.planName && <p className="text-xs text-emerald-700 font-medium">{savAcc.planName}</p>}
+                            <p className="text-xs text-emerald-600">Total Balance</p>
+                          </div>
+                          <p className="text-xl font-black text-emerald-700">₹{(savAcc.totalBalance || 0).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Loan details */}
+                    {loan && (
+                      <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+                        <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Active Loan</p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-indigo-700 font-medium">
+                              ₹{(loan as any).loanAmount?.toLocaleString() || "—"} · {(loan as any).tenureMonths || (loan as any).durationMonths}mo
+                            </p>
+                            <p className="text-xs text-indigo-600">Outstanding Balance</p>
+                          </div>
+                          <p className="text-xl font-black text-indigo-700">₹{(loan.outstandingBalance ?? 0).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Last collection */}
+                    {lastCol && (
+                      <div className="bg-white rounded-xl p-3 border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Last Collection</p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-slate-600">
+                              {toDate(lastCol.collectedAt || (lastCol as any).timestamp).getTime() > 0
+                                ? format(toDate(lastCol.collectedAt || (lastCol as any).timestamp), "MMM d, yyyy · h:mm a")
+                                : "—"}
+                            </p>
+                            {lastCol.receiptNo && <p className="text-[10px] text-slate-400 font-mono mt-0.5">{lastCol.receiptNo}</p>}
+                          </div>
+                          <p className="font-bold text-emerald-600">₹{Number(lastCol.amount).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
+                      {(cType === "SAVINGS" || cType === "SAVINGS_LOAN") && (
+                        <button
+                          onClick={() => setCollectCustomer(customer)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+                        >
+                          <PiggyBank className="w-4 h-4" /> Savings Entry
+                        </button>
+                      )}
+                      {(cType === "LOAN" || cType === "SAVINGS_LOAN") && (
+                        <button
+                          onClick={() => setCollectCustomer(customer)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+                        >
+                          <CreditCard className="w-4 h-4" /> EMI Entry
+                        </button>
+                      )}
+                      {cType !== "SAVINGS" && cType !== "LOAN" && cType !== "SAVINGS_LOAN" && (
+                        <button
+                          onClick={() => setCollectCustomer(customer)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+                        >
+                          <IndianRupee className="w-4 h-4" /> Collect
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <Button
-                    onClick={() => setSelectedCustomer(customer)}
-                    disabled={!isActive}
-                    className={`w-full ${isActive ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}
-                    title={isActive ? undefined : "Customer must activate their account first"}
-                  >
-                    <IndianRupee className="w-4 h-4 mr-2" />
-                    {isActive ? "Collect Daily Savings" : "Awaiting Activation"}
-                  </Button>
-                </CardContent>
+                )}
               </Card>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
-      {/* Collect dialog */}
-      <Dialog open={!!selectedCustomer} onOpenChange={(open) => !open && setSelectedCustomer(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Record Collection</DialogTitle>
-          </DialogHeader>
-          {selectedCustomer && (
-            <form onSubmit={handleCollect} className="space-y-4">
-              <div className="p-4 bg-slate-50 rounded-lg mb-4">
-                <p className="text-sm text-slate-500">Customer</p>
-                <p className="font-bold text-lg">{(selectedCustomer as any).fullName || (selectedCustomer as any).name || selectedCustomer.email}</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount">Amount (₹)</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  placeholder="e.g. 500"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  required
-                  className="text-lg"
-                  autoFocus
-                  min="1"
-                />
-              </div>
-              <Button type="submit" className="w-full h-12 text-lg bg-emerald-600 hover:bg-emerald-700" disabled={isSubmitting}>
-                {isSubmitting ? "Processing..." : "Confirm Collection"}
-              </Button>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Add customer dialog */}
-      <Dialog open={showAddCustomer} onOpenChange={(open) => { if (!open) { setShowAddCustomer(false); resetAddForm(); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{createdPassword ? "Customer Created" : "Add New Customer"}</DialogTitle>
-          </DialogHeader>
-
-          {createdPassword ? (
-            <div className="space-y-4 mt-2">
-              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center space-y-1">
-                <p className="text-sm font-semibold text-emerald-800">Account created successfully!</p>
-                <p className="text-xs text-emerald-600">Share these credentials with the customer to sign in.</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Email</Label>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 font-mono">{addEmail}</div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Temporary Password</Label>
-                <div className="flex gap-2">
-                  <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 font-mono">{createdPassword}</div>
-                </div>
-                <p className="text-xs text-slate-400">Ask the customer to change this after first login.</p>
-              </div>
-              <Button className="w-full" onClick={() => { setShowAddCustomer(false); resetAddForm(); }}>Done</Button>
-            </div>
-          ) : (
-            <form onSubmit={handleAddCustomerSubmit} className="space-y-4 mt-2 pt-2">
-              <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-xs text-emerald-800">
-                Customer will be automatically assigned to you.
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="add-fname">First Name <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="add-fname"
-                    placeholder="Jane"
-                    value={firstName}
-                    onChange={(e) => { setFirstName(e.target.value); if (addErrors.firstName) setAddErrors((p) => ({ ...p, firstName: "" })); }}
-                    autoComplete="off"
-                    className={addErrors.firstName ? "border-red-400 focus-visible:ring-red-300" : ""}
-                  />
-                  <FieldError error={addErrors.firstName} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="add-lname">Last Name</Label>
-                  <Input
-                    id="add-lname"
-                    placeholder="Doe"
-                    value={lastName}
-                    onChange={e => setLastName(e.target.value)}
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="add-email">Email <span className="text-red-500">*</span></Label>
-                <Input
-                  id="add-email"
-                  type="email"
-                  placeholder="customer@email.com"
-                  value={addEmail}
-                  onChange={(e) => { setAddEmail(e.target.value); if (addErrors.email) setAddErrors((p) => ({ ...p, email: "" })); }}
-                  autoComplete="off"
-                  className={addErrors.email ? "border-red-400 focus-visible:ring-red-300" : ""}
-                />
-                <FieldError error={addErrors.email} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="add-phone">Phone</Label>
-                <Input
-                  id="add-phone"
-                  type="tel"
-                  placeholder="9876543210"
-                  value={addPhone}
-                  onChange={(e) => { setAddPhone(e.target.value); if (addErrors.phone) setAddErrors((p) => ({ ...p, phone: "" })); }}
-                  autoComplete="off"
-                  maxLength={10}
-                  className={addErrors.phone ? "border-red-400 focus-visible:ring-red-300" : ""}
-                />
-                <FieldError error={addErrors.phone} />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowAddCustomer(false); resetAddForm(); }}>
-                  Cancel
-                </Button>
-                <Button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={isValidating || isAdding || !firstName.trim() || !addEmail.trim() || Object.values(addErrors).some(Boolean)}>
-                  {isValidating || isAdding ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{isValidating ? "Validating…" : "Creating…"}</>
-                  ) : "Create Account"}
-                </Button>
-              </div>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <PlanLimitModal
-        isOpen={showLimitModal}
-        onClose={() => { setShowLimitModal(false); setUpgradeRequestSent(false); }}
-        onRequestUpgrade={handleRequestUpgrade}
-        isRequesting={isRequestingUpgrade}
-        requestSent={upgradeRequestSent}
-        currentPlan={currentPlan}
-        maxCustomers={maxCustomers}
+      <CollectDialog
+        customer={collectCustomer}
+        orgId={orgId}
+        orgName={orgName}
+        agentId={agentId}
+        agentName={agentName}
+        onClose={() => setCollectCustomer(null)}
       />
     </div>
   );
