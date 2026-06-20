@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   User, Edit3, Save, X, Phone, MapPin, Shield, Camera,
-  LogOut, RefreshCw, CreditCard, AlertTriangle, Lock, Upload,
+  LogOut, RefreshCw, CreditCard, AlertTriangle, Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SignOutButton, useClerk } from "@clerk/clerk-react";
+import { SignOutButton, useClerk, useUser } from "@clerk/clerk-react";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { toast } from "sonner";
 import type { Membership } from "@/types";
 import ChangePasswordForm from "./ChangePasswordForm";
@@ -19,7 +18,42 @@ interface Props {
   nomineeLocked?: boolean;
 }
 
-function Field({
+// ── Canvas image compressor ─────────────────────────────────────────────────
+// Resizes to maxDim×maxDim, outputs WebP (falls back to JPEG). Never blocks UI.
+async function compressImage(file: File, maxDim = 512, maxBytes = 300 * 1024): Promise<File> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+        else        { w = Math.round((w * maxDim) / h); h = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(file); return; }
+        if (blob.size <= maxBytes) {
+          resolve(new File([blob], "profile.webp", { type: "image/webp" }));
+        } else {
+          // Reduce quality with JPEG as fallback
+          canvas.toBlob(
+            (b2) => resolve(b2 ? new File([b2], "profile.jpg", { type: "image/jpeg" }) : file),
+            "image/jpeg",
+            0.75,
+          );
+        }
+      }, "image/webp", 0.85);
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// ── Field component ─────────────────────────────────────────────────────────
+const Field = React.memo(function Field({
   label, value, editMode, onChange, placeholder, icon, type = "text",
 }: {
   label: string; value: string; editMode: boolean;
@@ -40,23 +74,25 @@ function Field({
         </div>
       ) : (
         <p className="text-slate-900 dark:text-white text-sm min-h-[20px]">
-          {value || <span className="text-slate-400">—</span>}
+          {value ? value : <span className="text-slate-400">—</span>}
         </p>
       )}
     </div>
   );
-}
+});
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_SIZE_MB = 5;
 
 export default function ProfileTab({ user, membershipId, membershipDoc, nomineeLocked = false }: Props) {
   const { signOut } = useClerk();
+  const { user: clerkUser } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadLabel, setUploadLabel] = useState("Uploading…");
   const [avatarUrl, setAvatarUrl] = useState<string>("");
 
   const [firstName, setFirstName] = useState("");
@@ -79,114 +115,120 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
 
   const mem = membershipDoc;
 
-  const resolvedNomineeName = mem?.nomineeName || mem?.nominee?.name || "";
+  const resolvedNomineeName     = mem?.nomineeName     || mem?.nominee?.name     || "";
   const resolvedNomineeRelation = mem?.nomineeRelation || mem?.nominee?.relation || "";
-  const resolvedNomineePhone = mem?.nomineePhone || mem?.nominee?.phone || "";
-  const resolvedNomineeAddress = mem?.nomineeAddress || mem?.nominee?.address || "";
+  const resolvedNomineePhone    = mem?.nomineePhone    || mem?.nominee?.phone    || "";
+  const resolvedNomineeAddress  = mem?.nomineeAddress  || mem?.nominee?.address  || "";
 
   const nomineeComplete = !!(resolvedNomineeName && resolvedNomineeRelation);
 
   useEffect(() => {
-    const url = (mem as any)?.avatarUrl || user?.imageUrl || "";
+    const url = (mem as any)?.avatarUrl || user?.imageUrl || clerkUser?.imageUrl || "";
     setAvatarUrl(url);
-  }, [mem, user]);
+  }, [mem, user, clerkUser?.imageUrl]);
 
   useEffect(() => {
-    if (editMode) {
-      setFirstName(mem?.firstName || user?.firstName || "");
-      setLastName(mem?.lastName || user?.lastName || "");
-      setPhone(mem?.phone || "");
-      setAddress(mem?.address || "");
-      setCity(mem?.city || "");
-      setState(mem?.state || "");
-      setPincode(mem?.pincode || "");
-      setDateOfBirth(mem?.dateOfBirth || "");
-      setGender(mem?.gender || "");
-      setAadhaarLast4(mem?.aadhaarLast4 || "");
-      setNomineeName(resolvedNomineeName);
-      setNomineeRelation(resolvedNomineeRelation);
-      setNomineePhone(resolvedNomineePhone);
-      setNomineeAddress(resolvedNomineeAddress);
-    }
+    if (!editMode) return;
+    setFirstName(mem?.firstName || user?.firstName || "");
+    setLastName(mem?.lastName  || user?.lastName  || "");
+    setPhone(mem?.phone || "");
+    setAddress(mem?.address || "");
+    setCity(mem?.city || "");
+    setState(mem?.state || "");
+    setPincode(mem?.pincode || "");
+    setDateOfBirth(mem?.dateOfBirth || "");
+    setGender(mem?.gender || "");
+    setAadhaarLast4(mem?.aadhaarLast4 || "");
+    setNomineeName(resolvedNomineeName);
+    setNomineeRelation(resolvedNomineeRelation);
+    setNomineePhone(resolvedNomineePhone);
+    setNomineeAddress(resolvedNomineeAddress);
   }, [editMode]);
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ── Profile Image Upload via Clerk API + Canvas Compression ─────────────────
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !membershipId) return;
+    if (!file || !clerkUser) return;
+    if (fileInputRef.current) fileInputRef.current.value = "";
 
     if (!ACCEPTED_TYPES.includes(file.type)) {
       toast.error("Only JPG, PNG, and WEBP images are allowed.");
       return;
     }
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`Image must be smaller than ${MAX_SIZE_MB}MB.`);
-      return;
-    }
 
+    // Save previous URL for rollback
+    const prevUrl = avatarUrl;
+
+    // Instant preview — never stays at 0%
+    const objectUrl = URL.createObjectURL(file);
+    setAvatarUrl(objectUrl);
     setUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(15);
+    setUploadLabel("Compressing…");
 
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `avatars/${membershipId}/${Date.now()}.${ext}`;
-      const fileRef = storageRef(storage, path);
-      const task = uploadBytesResumable(fileRef, file);
+      // Compress: resize to 512×512 max, WebP, ≤300 KB
+      const compressed = await compressImage(file, 512, 300 * 1024);
+      setUploadProgress(40);
+      setUploadLabel("Uploading…");
 
-      task.on(
-        "state_changed",
-        (snap) => {
-          setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
-        },
-        (err) => {
-          console.error("[Avatar upload] error:", err);
-          toast.error("Upload failed. Please try again.");
-          setUploading(false);
-        },
-        async () => {
-          const url = await getDownloadURL(task.snapshot.ref);
-          await updateDoc(doc(db, "organizationMembers", membershipId), {
-            avatarUrl: url,
-            updatedAt: serverTimestamp(),
-          });
-          setAvatarUrl(url);
-          setUploading(false);
-          setUploadProgress(0);
-          toast.success("Profile photo updated!");
-          if (fileInputRef.current) fileInputRef.current.value = "";
-        }
-      );
+      // Upload directly to Clerk (no Firebase Storage needed)
+      await clerkUser.setProfileImage({ file: compressed });
+      setUploadProgress(85);
+      setUploadLabel("Processing…");
+
+      // Sync the new Clerk imageUrl to Firestore so org dashboards see it
+      const newImageUrl = clerkUser.imageUrl;
+      if (membershipId && newImageUrl) {
+        await updateDoc(doc(db, "organizationMembers", membershipId), {
+          avatarUrl: newImageUrl,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      setUploadProgress(100);
+      setUploadLabel("Done!");
+      setAvatarUrl(clerkUser.imageUrl || objectUrl);
+      toast.success("Profile photo updated!");
     } catch (err: any) {
-      console.error("[Avatar upload] exception:", err);
-      toast.error("Upload failed. Please try again.");
-      setUploading(false);
+      console.error("[Avatar] upload error:", err);
+      URL.revokeObjectURL(objectUrl);
+      setAvatarUrl(prevUrl); // rollback
+      toast.error(err?.errors?.[0]?.longMessage || err?.message || "Upload failed. Please try again.");
+    } finally {
+      setTimeout(() => {
+        setUploading(false);
+        setUploadProgress(0);
+        setUploadLabel("Uploading…");
+      }, 600);
     }
-  };
+  }, [clerkUser, membershipId, avatarUrl]);
 
   const handleSave = async () => {
     if (!membershipId) return toast.error("Not authenticated.");
     setSaving(true);
     try {
       await updateDoc(doc(db, "organizationMembers", membershipId), {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        fullName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-        phone: phone.trim(),
-        address: address.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        pincode: pincode.trim(),
-        dateOfBirth: dateOfBirth.trim(),
-        gender: gender.trim(),
-        aadhaarLast4: aadhaarLast4.trim(),
-        nomineeName: nomineeName.trim(),
-        nomineeRelation: nomineeRelation.trim(),
-        nomineePhone: nomineePhone.trim(),
-        nomineeAddress: nomineeAddress.trim(),
+        firstName:        firstName.trim(),
+        lastName:         lastName.trim(),
+        fullName:         `${firstName.trim()} ${lastName.trim()}`.trim(),
+        phone:            phone.trim(),
+        address:          address.trim(),
+        city:             city.trim(),
+        state:            state.trim(),
+        pincode:          pincode.trim(),
+        dateOfBirth:      dateOfBirth.trim(),
+        gender:           gender.trim(),
+        aadhaarLast4:     aadhaarLast4.trim(),
+        nomineeName:      nomineeName.trim(),
+        nomineeRelation:  nomineeRelation.trim(),
+        nomineePhone:     nomineePhone.trim(),
+        nomineeAddress:   nomineeAddress.trim(),
         nominee: {
-          name: nomineeName.trim(),
+          name:     nomineeName.trim(),
           relation: nomineeRelation.trim(),
-          phone: nomineePhone.trim(),
-          address: nomineeAddress.trim(),
+          phone:    nomineePhone.trim(),
+          address:  nomineeAddress.trim(),
         },
         updatedAt: serverTimestamp(),
       });
@@ -199,7 +241,7 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
     }
   };
 
-  const displayName = mem?.fullName || `${mem?.firstName || ""} ${mem?.lastName || ""}`.trim() || user?.fullName || "Customer";
+  const displayName  = mem?.fullName || `${mem?.firstName || ""} ${mem?.lastName || ""}`.trim() || user?.fullName || "Customer";
   const displayEmail = mem?.email || user?.primaryEmailAddress?.emailAddress || "";
 
   return (
@@ -213,10 +255,8 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
               Please fill in your nominee information. This is required for loan and savings account protection.
             </p>
           </div>
-          <button
-            onClick={() => setEditMode(true)}
-            className="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0 underline underline-offset-2"
-          >
+          <button onClick={() => setEditMode(true)}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0 underline underline-offset-2">
             Update now
           </button>
         </div>
@@ -240,43 +280,44 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                   src={avatarUrl}
                   alt="Profile"
                   className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-200 dark:ring-emerald-700"
-                  onError={() => setAvatarUrl("")}
+                  onError={() => setAvatarUrl(user?.imageUrl || clerkUser?.imageUrl || "")}
                 />
               ) : (
                 <div className="w-16 h-16 rounded-2xl bg-emerald-600 flex items-center justify-center text-white text-xl font-black">
                   {(displayName[0] || "C").toUpperCase()}
                 </div>
               )}
+
               {/* Upload progress overlay */}
               {uploading && (
-                <div className="absolute inset-0 rounded-2xl bg-black/60 flex flex-col items-center justify-center">
-                  <p className="text-white text-[10px] font-bold">{uploadProgress}%</p>
-                  <div className="w-10 h-1 bg-white/30 rounded-full mt-1">
+                <div className="absolute inset-0 rounded-2xl bg-black/65 flex flex-col items-center justify-center gap-1">
+                  <p className="text-white text-[9px] font-bold leading-tight">{uploadLabel}</p>
+                  <p className="text-emerald-300 text-[11px] font-black">{uploadProgress}%</p>
+                  <div className="w-10 h-1 bg-white/30 rounded-full overflow-hidden">
                     <div
-                      className="h-1 bg-emerald-400 rounded-full transition-all"
+                      className="h-full bg-emerald-400 rounded-full transition-all duration-300"
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>
                 </div>
               )}
-              {/* Camera button — always visible, triggers upload */}
+
+              {/* Camera button */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
                 title="Change profile photo"
                 className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full flex items-center justify-center shadow-sm transition-colors"
               >
-                {uploading ? (
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Camera className="w-3 h-3" />
-                )}
+                {uploading
+                  ? <RefreshCw className="w-3 h-3 animate-spin" />
+                  : <Camera className="w-3 h-3" />}
               </button>
             </div>
 
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900 dark:text-white text-lg leading-tight truncate">{displayName}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{displayEmail}</p>
+              <p className="font-bold text-slate-900 dark:text-white text-lg leading-tight truncate">{displayName || "—"}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{displayEmail || "—"}</p>
               {mem?.status && (
                 <div className="mt-1.5">
                   <span className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -289,6 +330,7 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                 </div>
               )}
             </div>
+
             <button
               onClick={() => setEditMode(!editMode)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors shrink-0 ${
@@ -300,13 +342,6 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
               {editMode ? <><X className="w-3.5 h-3.5" /> Cancel</> : <><Edit3 className="w-3.5 h-3.5" /> Edit</>}
             </button>
           </div>
-
-          {uploading && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-              <Upload className="w-3.5 h-3.5 animate-bounce" />
-              Uploading photo… {uploadProgress}%
-            </div>
-          )}
 
           {editMode && (
             <button
@@ -353,7 +388,9 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                   <option value="Other">Other</option>
                 </select>
               ) : (
-                <p className="text-slate-900 dark:text-white text-sm">{mem?.gender || <span className="text-slate-400">—</span>}</p>
+                <p className="text-slate-900 dark:text-white text-sm">
+                  {mem?.gender ? mem.gender : <span className="text-slate-400">—</span>}
+                </p>
               )}
             </div>
           </div>
@@ -434,7 +471,9 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                   <option value="Other">Other</option>
                 </select>
               ) : (
-                <p className="text-slate-900 dark:text-white text-sm">{resolvedNomineeRelation || <span className="text-slate-400">—</span>}</p>
+                <p className="text-slate-900 dark:text-white text-sm">
+                  {resolvedNomineeRelation ? resolvedNomineeRelation : <span className="text-slate-400">—</span>}
+                </p>
               )}
             </div>
             <Field label="Nominee Phone" value={editMode ? nomineePhone : resolvedNomineePhone}

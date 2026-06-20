@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   PiggyBank, Download, TrendingUp, Calendar,
-  BarChart3, ArrowUpRight, Clock, XCircle, CheckCircle, ChevronRight, Loader2, AlertCircle,
+  BarChart3, ArrowUpRight, Clock, XCircle, ChevronRight, Loader2, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -181,30 +181,108 @@ export default function SavingsTab({
       }));
   }, [txsWithBalance]);
 
-  const downloadCSV = () => {
-    const rows = [
-      ["Date", "Time", "Receipt No", "Amount (₹)", "Balance After (₹)", "Collected By"],
-      ...txsWithBalance.map((tx) => {
-        const d = toDate(tx.collectedAt);
-        return [
-          d.getTime() > 0 ? format(d, "yyyy-MM-dd") : "—",
-          d.getTime() > 0 ? format(d, "HH:mm") : "—",
-          tx.receiptNo || "",
-          safeN(tx.amount).toString(),
-          safeN(tx.balanceAfter).toString(),
-          tx.collectedByName || "Agent",
-        ];
-      }),
+  const downloadStatementPDF = useCallback(async () => {
+    if (savingsTxs.length === 0) return;
+    const { default: jsPDF } = await import("jspdf");
+
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const PW = 210;
+    const MARGIN = 15;
+    const CW = PW - MARGIN * 2;
+    let y = MARGIN;
+
+    const line = (width = CW) => {
+      doc.setDrawColor(220, 220, 220);
+      doc.line(MARGIN, y, MARGIN + width, y);
+      y += 4;
+    };
+    const txt = (text: string, size: number, bold = false, color = "#1e293b", align: "left" | "center" | "right" = "left") => {
+      doc.setFontSize(size);
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setTextColor(color);
+      const x = align === "center" ? PW / 2 : align === "right" ? PW - MARGIN : MARGIN;
+      doc.text(text, x, y, { align });
+      y += size * 0.45;
+    };
+
+    // ── Header
+    txt("FundCircle", 18, true, "#059669", "center"); y += 1;
+    txt(orgName, 10, false, "#64748b", "center"); y += 1;
+    txt("SAVINGS ACCOUNT STATEMENT", 9, true, "#94a3b8", "center"); y += 4;
+    line();
+
+    // ── Account info
+    const infoRows: [string, string][] = [
+      ["Customer", customerName || "—"],
+      ["Organization", orgName],
+      ["Account Since", accountSinceDate ? format(accountSinceDate, "dd MMM yyyy") : "—"],
+      ["Generated On", format(new Date(), "dd MMM yyyy, hh:mm a")],
+      ["Total Transactions", savingsTxs.length.toString()],
+      ["Total Deposits", `Rs. ${totalDeposits.toLocaleString()}`],
+      ["Current Balance", `Rs. ${totalBalance.toLocaleString()}`],
     ];
-    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `savings-statement-${orgName.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+    for (const [label, value] of infoRows) {
+      const rowY = y;
+      doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor("#64748b");
+      doc.text(label, MARGIN, rowY);
+      doc.setFont("helvetica", "bold"); doc.setTextColor("#1e293b");
+      doc.text(value, PW - MARGIN, rowY, { align: "right" });
+      y += 5.5;
+    }
+    y += 2;
+    line();
+
+    // ── Table header
+    const cols = { no: 0, date: 8, receipt: 40, amount: 105, balance: 140, agent: 175 };
+    doc.setFillColor(248, 250, 252);
+    doc.rect(MARGIN, y - 1, CW, 7, "F");
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor("#475569");
+    doc.text("#",                MARGIN + cols.no,      y + 4);
+    doc.text("Date",             MARGIN + cols.date,    y + 4);
+    doc.text("Receipt No",       MARGIN + cols.receipt, y + 4);
+    doc.text("Amount (Rs.)",     MARGIN + cols.amount,  y + 4, { align: "right" });
+    doc.text("Balance (Rs.)",    MARGIN + cols.balance, y + 4, { align: "right" });
+    doc.text("Collected By",     MARGIN + cols.agent,   y + 4);
+    y += 8;
+
+    // ── Rows
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+    let rowNum = 0;
+    for (const tx of txsWithBalance) {
+      rowNum++;
+      if (y > 272) {
+        doc.addPage();
+        y = MARGIN + 5;
+      }
+      if (rowNum % 2 === 0) {
+        doc.setFillColor(249, 250, 251);
+        doc.rect(MARGIN, y - 1, CW, 6, "F");
+      }
+      const d = toDate(tx.collectedAt);
+      const dateStr = d.getTime() > 0 ? format(d, "dd/MM/yy") : "—";
+      doc.setTextColor("#374151");
+      doc.text(rowNum.toString(),                      MARGIN + cols.no,      y + 3.5);
+      doc.text(dateStr,                                MARGIN + cols.date,    y + 3.5);
+      doc.text((tx.receiptNo || "—").slice(0, 20),     MARGIN + cols.receipt, y + 3.5);
+      doc.text(safeN(tx.amount).toLocaleString(),      MARGIN + cols.amount,  y + 3.5, { align: "right" });
+      doc.text(safeN(tx.balanceAfter).toLocaleString(),MARGIN + cols.balance, y + 3.5, { align: "right" });
+      doc.text((tx.collectedByName || "Agent").slice(0, 14), MARGIN + cols.agent, y + 3.5);
+      y += 6;
+    }
+
+    // ── Footer
+    y += 4; line();
+    doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor("#059669");
+    doc.text(`Total Deposits: Rs. ${totalDeposits.toLocaleString()}`, MARGIN, y);
+    doc.text(`Current Balance: Rs. ${totalBalance.toLocaleString()}`, PW - MARGIN, y, { align: "right" });
+    y += 8;
+    doc.setFontSize(7); doc.setFont("helvetica", "italic"); doc.setTextColor("#94a3b8");
+    doc.text("This is a digitally generated statement. No signature required.", PW / 2, y, { align: "center" });
+    y += 4;
+    doc.text("Powered by FundCircle", PW / 2, y, { align: "center" });
+
+    doc.save(`savings-statement-${orgName.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.pdf`);
+  }, [savingsTxs, txsWithBalance, orgName, customerName, accountSinceDate, totalDeposits, totalBalance]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
@@ -687,14 +765,14 @@ export default function SavingsTab({
               </div>
             </div>
             <button
-              onClick={downloadCSV}
+              onClick={downloadStatementPDF}
               disabled={savingsTxs.length === 0}
               className="w-full h-11 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-colors disabled:opacity-50"
             >
-              <Download className="w-4 h-4" /> Download CSV Statement
+              <Download className="w-4 h-4" /> Download Statement PDF
             </button>
             <p className="text-xs text-slate-400 text-center">
-              Opens as a spreadsheet file in Excel or Google Sheets
+              A4 PDF with your complete transaction history
             </p>
           </CardContent>
         </Card>

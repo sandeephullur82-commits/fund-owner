@@ -1,7 +1,6 @@
 import { format } from "date-fns";
-import { X, Printer, Download } from "lucide-react";
+import { X, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import jsPDF from "jspdf";
 
 export interface ReceiptData {
   receiptNo: string;
@@ -30,153 +29,42 @@ function safeN(v: any): number {
   return isFinite(n) ? n : 0;
 }
 
-function fmt(n: any): string {
-  return `Rs. ${safeN(n).toLocaleString("en-IN")}`;
-}
-
-function generateReceiptPDF(receipt: ReceiptData) {
-  const W = 80;
-  const doc = new jsPDF({ unit: "mm", format: [W, 220] });
-
-  let y = 8;
-
-  const center = (text: string, size = 9, bold = false) => {
-    doc.setFontSize(size);
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.text(text, W / 2, y, { align: "center" });
-    y += size * 0.45 + 1.5;
-  };
-
-  const dashed = () => {
-    doc.setLineDashPattern([1.2, 1.2], 0);
-    doc.setDrawColor(180, 180, 180);
-    doc.line(4, y, W - 4, y);
-    y += 3;
-  };
-
-  const row = (label: string, value: string, bold = false) => {
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(label, 4, y);
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.text(value, W - 4, y, { align: "right" });
-    y += 5;
-  };
-
-  const spacer = (h = 2) => { y += h; };
-
-  // ── Header ──
-  center("FundCircle", 13, true);
-  center(receipt.organizationName, 9);
-  spacer(1);
-  dashed();
-
-  const typeLabel =
-    receipt.collectionType === "SAVINGS"
-      ? "SAVINGS DEPOSIT RECEIPT"
-      : receipt.collectionType === "LOAN_EMI"
-      ? "EMI PAYMENT RECEIPT"
-      : "COMBINED COLLECTION RECEIPT";
-  center(typeLabel, 8, true);
-  spacer(1);
-  dashed();
-
-  // ── Info ──
-  row("Receipt No.", receipt.receiptNo, true);
-  row("Customer", receipt.customerName);
-  row("Collector", receipt.agentName);
-  row("Date", format(receipt.collectedAt, "dd MMM yyyy"));
-  row("Time", format(receipt.collectedAt, "hh:mm a"));
-  if (receipt.collectionType === "LOAN_EMI" && receipt.installmentNo) {
-    row("EMI Installment", `#${receipt.installmentNo}`);
-  }
-
-  dashed();
-
-  // ── Amounts ──
-  if (receipt.collectionType === "SAVINGS") {
-    row("Deposit Amount", fmt(receipt.amount), true);
-    row(
-      "Savings Balance",
-      `Rs. ${safeN(receipt.newBalance).toLocaleString("en-IN")}`,
-      true
-    );
-  } else if (receipt.collectionType === "LOAN_EMI") {
-    row("EMI Amount Paid", fmt(receipt.amount), true);
-    if (receipt.loanOutstanding !== undefined) {
-      row(
-        "Loan Outstanding",
-        receipt.loanOutstanding === 0
-          ? "LOAN CLOSED"
-          : fmt(receipt.loanOutstanding),
-        true
-      );
-    }
-  } else {
-    if (receipt.savingsAmount !== undefined) row("Savings Deposit", fmt(receipt.savingsAmount));
-    if (receipt.loanAmount !== undefined) row("EMI Payment", fmt(receipt.loanAmount));
-    row("Total Collected", fmt(receipt.amount), true);
-    if (receipt.newBalance !== undefined) {
-      row("Savings Balance", `Rs. ${safeN(receipt.newBalance).toLocaleString("en-IN")}`);
-    }
-    if (receipt.loanOutstanding !== undefined) {
-      row(
-        "Loan Outstanding",
-        receipt.loanOutstanding === 0 ? "LOAN CLOSED" : fmt(receipt.loanOutstanding)
-      );
-    }
-  }
-
-  dashed();
-
-  // ── Footer ──
-  center("Thank you for your payment!", 8, true);
-  spacer(1);
-  center("Powered by FundCircle", 7);
-  spacer(2);
-
-  // Trim page to content
-  (doc.internal.pageSize as any).height = y + 4;
-
-  doc.save(`Receipt-${receipt.receiptNo}.pdf`);
-}
-
 export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
   if (!receipt) return null;
 
   const handlePrint = () => window.print();
-  const handleDownloadPDF = () => generateReceiptPDF(receipt);
 
   const displayBalance = safeN(receipt.newBalance);
   const displayOutstanding = safeN(receipt.loanOutstanding);
 
   return (
     <>
-      {/* Thermal print styles */}
+      {/*
+        Print CSS — visibility approach so it works inside React's #root container.
+        Using `body > *` hiding would hide #root itself and blank the page.
+      */}
       <style>{`
         @media print {
-          body > *:not(.fc-receipt-print) { display: none !important; }
-          .fc-receipt-print {
-            position: fixed !important;
-            inset: 0 !important;
-            z-index: 9999 !important;
-            background: white !important;
-            display: flex !important;
-            align-items: flex-start !important;
-            justify-content: center !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          .fc-receipt-print .print\\:hidden { display: none !important; }
+          /* Make everything invisible, then reveal only the receipt card */
+          body * { visibility: hidden !important; }
+          .fc-receipt-modal,
+          .fc-receipt-modal * { visibility: visible !important; }
+
+          /* Position receipt at top-left of the 80mm page */
           .fc-receipt-modal {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
             width: 80mm !important;
             max-width: 80mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
+            background: white !important;
             border-radius: 0 !important;
             box-shadow: none !important;
-            font-size: 10pt !important;
+            padding: 6mm !important;
+            margin: 0 !important;
           }
+
+          /* 80mm thermal paper */
           @page {
             size: 80mm auto;
             margin: 0;
@@ -184,17 +72,18 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
         }
       `}</style>
 
-      <div className="fc-receipt-print fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 print:bg-white print:p-0">
-        <div className="fc-receipt-modal relative bg-white rounded-2xl shadow-2xl w-full max-w-sm print:shadow-none print:rounded-none print:max-w-full">
-          {/* Close */}
+      <div className="fc-receipt-print fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="fc-receipt-modal relative bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+          {/* Close ✕ */}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 transition-colors print:hidden"
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 transition-colors"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {/* Receipt Content */}
+          {/* ── Receipt Content ─────────────────────────────────────────── */}
           <div className="p-6 space-y-4">
             {/* Header */}
             <div className="text-center border-b border-dashed border-slate-300 pb-4">
@@ -209,49 +98,59 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
               </div>
             </div>
 
-            {/* Receipt No */}
+            {/* Receipt number */}
             <div className="bg-slate-50 rounded-xl p-3 text-center">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Receipt Number</p>
               <p className="text-base font-black text-slate-900 mt-0.5 font-mono tracking-wide">
-                {receipt.receiptNo}
+                {receipt.receiptNo || "—"}
               </p>
             </div>
 
             {/* Details */}
             <div className="space-y-2.5 text-sm">
-              <ReceiptRow label="Customer" value={receipt.customerName} />
+              <ReceiptRow label="Customer" value={receipt.customerName || "—"} />
               {receipt.accountNumber && (
                 <ReceiptRow label="Account No." value={receipt.accountNumber} />
               )}
               <ReceiptRow
                 label="Date & Time"
-                value={format(receipt.collectedAt, "dd MMM yyyy, hh:mm a")}
+                value={
+                  receipt.collectedAt instanceof Date && receipt.collectedAt.getTime() > 0
+                    ? format(receipt.collectedAt, "dd MMM yyyy, hh:mm a")
+                    : "—"
+                }
               />
-              <ReceiptRow label="Collected By" value={receipt.agentName} />
+              <ReceiptRow label="Collected By" value={receipt.agentName || "—"} />
               {receipt.collectionType === "LOAN_EMI" && receipt.installmentNo && (
                 <ReceiptRow label="EMI Installment" value={`#${receipt.installmentNo}`} />
               )}
             </div>
 
-            {/* Amount */}
+            {/* Amounts */}
             <div className="border-t border-dashed border-slate-300 pt-4 space-y-2">
               {receipt.collectionType === "BOTH" ? (
                 <>
                   {receipt.savingsAmount !== undefined && (
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-600">Savings Deposit</span>
-                      <span className="font-bold text-emerald-600">₹{safeN(receipt.savingsAmount).toLocaleString()}</span>
+                      <span className="font-bold text-emerald-600">
+                        ₹{safeN(receipt.savingsAmount).toLocaleString()}
+                      </span>
                     </div>
                   )}
                   {receipt.loanAmount !== undefined && (
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-600">EMI Payment</span>
-                      <span className="font-bold text-indigo-600">₹{safeN(receipt.loanAmount).toLocaleString()}</span>
+                      <span className="font-bold text-indigo-600">
+                        ₹{safeN(receipt.loanAmount).toLocaleString()}
+                      </span>
                     </div>
                   )}
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2 mt-2">
                     <span className="font-bold text-slate-700">Total Collected</span>
-                    <span className="text-xl font-black text-emerald-600">₹{safeN(receipt.amount).toLocaleString()}</span>
+                    <span className="text-xl font-black text-emerald-600">
+                      ₹{safeN(receipt.amount).toLocaleString()}
+                    </span>
                   </div>
                   {receipt.newBalance !== undefined && (
                     <div className="flex items-center justify-between">
@@ -276,7 +175,9 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
                     <span className="font-semibold text-slate-600">
                       {receipt.collectionType === "SAVINGS" ? "Amount Deposited" : "EMI Amount Paid"}
                     </span>
-                    <span className="text-xl font-black text-emerald-600">₹{safeN(receipt.amount).toLocaleString()}</span>
+                    <span className="text-xl font-black text-emerald-600">
+                      ₹{safeN(receipt.amount).toLocaleString()}
+                    </span>
                   </div>
                   {receipt.collectionType === "SAVINGS" && receipt.newBalance !== undefined && (
                     <div className="flex items-center justify-between">
@@ -309,16 +210,20 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="px-6 pb-6 flex gap-2 print:hidden">
-            <Button onClick={handlePrint} variant="outline" className="flex-1 gap-2">
+          {/* ── Action Buttons ─────────────────────────────────────────── */}
+          <div className="px-6 pb-6 flex gap-3">
+            <Button
+              onClick={handlePrint}
+              variant="outline"
+              className="flex-1 gap-2 h-11"
+            >
               <Printer className="w-4 h-4" /> Print
             </Button>
             <Button
-              onClick={handleDownloadPDF}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 gap-2"
+              onClick={onClose}
+              className="flex-1 h-11 bg-slate-900 hover:bg-slate-800 text-white"
             >
-              <Download className="w-4 h-4" /> PDF
+              Done
             </Button>
           </div>
         </div>
@@ -331,7 +236,7 @@ function ReceiptRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4">
       <span className="text-slate-500 shrink-0">{label}</span>
-      <span className="font-semibold text-slate-900 text-right">{value}</span>
+      <span className="font-semibold text-slate-900 text-right">{value || "—"}</span>
     </div>
   );
 }
