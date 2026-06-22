@@ -1,14 +1,15 @@
 import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
-  Bell, Menu, LayoutDashboard,
+  Bell, LayoutDashboard, MoreHorizontal, ChevronRight,
   ArrowUpCircle, X, Plus, UserPlus, UserCheck,
   Landmark, IndianRupee, CheckCircle2, BarChart2, ClipboardList,
+  User, Building2, ShieldCheck,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useState, useEffect, useRef } from "react";
@@ -31,11 +32,11 @@ import OrgSettings from "./OrgSettings";
 import OrgBilling from "./OrgBilling";
 import OrgAuditLogs from "./OrgAuditLogs";
 const BOTTOM_NAV_ADMIN = [
-  { id: "overview", label: "Dashboard", icon: LayoutDashboard },
-  { id: "customers", label: "Customers", icon: Users },
-  { id: "collections", label: "Collections", icon: Wallet },
-  { id: "reports", label: "Reports", icon: FileText },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "overview",     label: "Dashboard",   icon: LayoutDashboard },
+  { id: "customers",    label: "Customers",   icon: Users },
+  { id: "collections",  label: "Collections", icon: Wallet },
+  { id: "reports",      label: "Reports",     icon: FileText },
+  { id: "more",         label: "More",        icon: MoreHorizontal },
 ];
 
 export default function OrgDashboard() {
@@ -49,6 +50,8 @@ export default function OrgDashboard() {
     try { sessionStorage.setItem("fc_org_active_tab", tab); } catch {}
   };
   const [fabOpen, setFabOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
@@ -192,34 +195,29 @@ export default function OrgDashboard() {
   return (
     <div className="flex flex-col md:flex-row md:h-screen min-h-screen bg-slate-50">
       {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <BrandMark size="sm" />
-            <span className="text-slate-300 font-light">·</span>
-            <span className="font-semibold text-slate-700 truncate max-w-[120px] text-sm">{orgName}</span>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Sheet>
-              <SheetTrigger render={
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <Menu className="w-4 h-4" />
-                </Button>
-              } />
-              <SheetContent side="left" className="w-[280px] p-0">
-                <SidebarContent
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  orgName={orgName}
-                  user={user}
-                  menuItems={menuItems}
-                  unreadCount={unreadCount}
-                  membershipLoading={membershipDocLoading}
-                />
-              </SheetContent>
-            </Sheet>
-          </div>
+      <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-2 min-w-0">
+          <BrandMark size="sm" />
+          <span className="text-slate-300 font-light">·</span>
+          <span className="font-semibold text-slate-700 truncate max-w-[140px] text-sm">{orgName}</span>
         </div>
+        <button
+          onClick={() => setProfileOpen(true)}
+          aria-label="Open profile menu"
+          className="relative flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+        >
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={user?.imageUrl} />
+            <AvatarFallback className="bg-sky-100 text-sky-700 text-sm font-bold">
+              {user?.firstName?.charAt(0) || "O"}
+            </AvatarFallback>
+          </Avatar>
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-0.5">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Desktop Sidebar */}
@@ -296,19 +294,29 @@ export default function OrgDashboard() {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center safe-area-pb">
         {BOTTOM_NAV_ADMIN.map((item) => {
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
+          const isMore = item.id === "more";
+          // "More" tab is active when current tab is not one of the primary four
+          const primaryIds = ["overview", "customers", "collections", "reports"];
+          const isActive = isMore
+            ? !primaryIds.includes(activeTab)
+            : activeTab === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 px-1 transition-colors ${
+              onClick={() => isMore ? setMoreOpen(true) : setActiveTab(item.id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 px-1 transition-colors relative ${
                 isActive ? "text-sky-600" : "text-slate-400"
               }`}
             >
-              <Icon className={`w-5 h-5 ${isActive ? "text-sky-600" : "text-slate-400"}`} />
+              <div className="relative">
+                <Icon className={`w-5 h-5 ${isActive ? "text-sky-600" : "text-slate-400"}`} />
+                {isMore && !primaryIds.includes(activeTab) && (
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2 rounded-full bg-sky-500" />
+                )}
+              </div>
               <span className="text-[10px] font-semibold leading-none">{item.label}</span>
             </button>
           );
@@ -324,6 +332,153 @@ export default function OrgDashboard() {
           orgId={organization?.id || ""}
         />
       )}
+
+      {/* ── More drawer (slides up from bottom) ───────────────────────────── */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="md:hidden rounded-t-2xl p-0 focus:outline-none" style={{ maxHeight: "85vh" }}>
+          <div className="flex flex-col h-full overflow-y-auto">
+            {/* Handle bar */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-slate-200" />
+            </div>
+            {/* User info strip */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 shrink-0">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={user?.imageUrl} />
+                <AvatarFallback className="bg-sky-100 text-sky-700 font-bold">
+                  {user?.firstName?.charAt(0) || "O"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-900 text-sm truncate">{user?.fullName || "Owner"}</p>
+                <p className="text-xs text-slate-400 truncate">{orgName}</p>
+              </div>
+            </div>
+            {/* Nav items */}
+            <div className="flex-1 py-2 px-2">
+              {[
+                { id: "settings",      label: "Profile",        icon: User,          sub: "Your account & preferences" },
+                { id: "agents",        label: "Collectors",     icon: Users,         sub: "Manage your collection team", badge: pendingSetupCount || undefined },
+                { id: "loans",         label: "Loans & EMI",    icon: CreditCard,    sub: "Loan book & installments",   badge: pendingLoanApps.length || undefined },
+                { id: "auditLogs",     label: "Audit Logs",     icon: ClipboardList, sub: "Activity & change history" },
+                { id: "notifications", label: "Notifications",  icon: Bell,          sub: "Alerts & updates",           badge: unreadCount || undefined },
+                { id: "billing",       label: "Billing",        icon: Wallet,        sub: "Plan & usage" },
+                { id: "settings",      label: "Settings",       icon: Settings,      sub: "Organization settings", key: "settings2" },
+              ].map((item, idx) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={(item as any).key || item.id + idx}
+                    onClick={() => { setActiveTab(item.id); setMoreOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left transition-all ${
+                      isActive && item.label !== "Settings"
+                        ? "bg-sky-50"
+                        : "hover:bg-slate-50 active:bg-slate-100"
+                    }`}
+                  >
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${
+                      isActive && item.label !== "Settings" ? "bg-sky-100" : "bg-slate-100"
+                    }`}>
+                      <Icon className={`w-4.5 h-4.5 ${isActive && item.label !== "Settings" ? "text-sky-600" : "text-slate-500"}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold ${isActive && item.label !== "Settings" ? "text-sky-700" : "text-slate-800"}`}>{item.label}</p>
+                      <p className="text-xs text-slate-400 truncate">{item.sub}</p>
+                    </div>
+                    {item.badge ? (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold px-1">
+                        {item.badge}
+                      </span>
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Sign out */}
+            <div className="shrink-0 px-2 py-2 border-t border-slate-100">
+              <SignOutButton>
+                <button className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left text-red-600 hover:bg-red-50 active:bg-red-100 transition-all">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 shrink-0">
+                    <LogOut className="w-4 h-4 text-red-500" />
+                  </div>
+                  <span className="text-sm font-semibold">Sign Out</span>
+                </button>
+              </SignOutButton>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Profile sheet (slides from right on avatar tap) ────────────────── */}
+      <Sheet open={profileOpen} onOpenChange={setProfileOpen}>
+        <SheetContent side="right" className="md:hidden w-[300px] p-0 focus:outline-none">
+          <div className="flex flex-col h-full">
+            {/* Avatar + name */}
+            <div className="flex flex-col items-center gap-3 px-6 py-8 bg-gradient-to-br from-sky-50 to-slate-50 border-b border-slate-100">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={user?.imageUrl} />
+                <AvatarFallback className="bg-sky-100 text-sky-700 text-2xl font-bold">
+                  {user?.firstName?.charAt(0) || "O"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-center min-w-0">
+                <p className="font-bold text-slate-900 text-base">{user?.fullName || "Owner"}</p>
+                <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[220px]">{user?.primaryEmailAddress?.emailAddress}</p>
+                <span className="inline-flex items-center mt-2 px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-semibold">
+                  Owner
+                </span>
+              </div>
+            </div>
+            {/* Nav items */}
+            <div className="flex-1 overflow-y-auto py-2 px-2">
+              {[
+                { id: "settings",      label: "User Profile",         icon: User,       sub: "Edit name, photo & details" },
+                { id: "settings",      label: "Organization Profile",  icon: Building2,  sub: "Org name, logo & info", key: "orgprofile" },
+                { id: "settings",      label: "Security",             icon: ShieldCheck, sub: "Password & 2FA", key: "security" },
+                { id: "notifications", label: "Notifications",         icon: Bell,       sub: "Alerts & preferences", badge: unreadCount || undefined },
+              ].map((item, idx) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={(item as any).key || item.id + idx}
+                    onClick={() => { setActiveTab(item.id); setProfileOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left hover:bg-slate-50 active:bg-slate-100 transition-all"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 shrink-0">
+                      <Icon className="w-4 h-4 text-slate-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                      <p className="text-xs text-slate-400 truncate">{item.sub}</p>
+                    </div>
+                    {(item as any).badge ? (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold px-1">
+                        {(item as any).badge}
+                      </span>
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Sign out */}
+            <div className="shrink-0 px-2 py-3 border-t border-slate-100">
+              <SignOutButton>
+                <button className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left text-red-600 hover:bg-red-50 active:bg-red-100 transition-all">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 shrink-0">
+                    <LogOut className="w-4 h-4 text-red-500" />
+                  </div>
+                  <span className="text-sm font-semibold">Sign Out</span>
+                </button>
+              </SignOutButton>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
