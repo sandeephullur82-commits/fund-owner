@@ -25,6 +25,7 @@ import {
   sanitizeName, sanitizeEmail, sanitizeMultiline, sanitizeSearch,
   validateEmail, validatePhone10, validateLettersOnlyName,
 } from "@/lib/validation";
+import SearchSelect from "@/components/ui/SearchSelect";
 import {
   Search, Plus, AlertTriangle, Users, ChevronDown, Loader2,
   KeyRound, Copy, Check, ShieldCheck, Phone, MessageCircle,
@@ -511,16 +512,35 @@ export default function OrgCustomers() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm font-semibold text-slate-700">Email <span className="text-red-500">*</span></Label>
-                    <Input type="email" placeholder="customer@example.com" value={email}
-                      onChange={e => { setEmail(e.target.value); validateCustomerField("email", e.target.value); }}
-                      className={`h-11 ${formErrors.email ? "border-red-400" : ""}`} />
+                    <Input
+                      type="email"
+                      inputMode="email"
+                      placeholder="customer@example.com"
+                      value={email}
+                      onChange={e => {
+                        const v = e.target.value.toLowerCase().trimStart();
+                        setEmail(v);
+                        validateCustomerField("email", v);
+                      }}
+                      className={`h-11 ${formErrors.email ? "border-red-400" : ""}`}
+                    />
                     <FieldError error={formErrors.email} />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm font-semibold text-slate-700">Phone Number</Label>
-                    <Input type="tel" placeholder="10-digit mobile number" value={phone} maxLength={10}
-                      onChange={e => { setPhone(e.target.value); validateCustomerField("phone", e.target.value); }}
-                      className={`h-11 ${formErrors.phone ? "border-red-400" : ""}`} />
+                    <Input
+                      type="tel"
+                      inputMode="numeric"
+                      placeholder="10-digit mobile number"
+                      value={phone}
+                      maxLength={10}
+                      onChange={e => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        setPhone(digits);
+                        validateCustomerField("phone", digits);
+                      }}
+                      className={`h-11 ${formErrors.phone ? "border-red-400" : ""}`}
+                    />
                     <FieldError error={formErrors.phone} />
                   </div>
                   <div className="space-y-1.5">
@@ -540,22 +560,22 @@ export default function OrgCustomers() {
                     ) : collectorsForAssignment.length === 1 ? (
                       <div className="h-11 rounded-md border border-emerald-200 bg-emerald-50 px-3 flex items-center gap-2 text-sm text-emerald-800 font-medium">
                         {isOwnerMember(collectorsForAssignment[0]) && <Crown className="w-3.5 h-3.5 text-amber-500" />}
-                        <span className="flex-1">{collectorsForAssignment[0].fullName || (collectorsForAssignment[0] as any).name}</span>
-                        <span className="text-xs text-emerald-600 font-normal">Auto-assigned</span>
+                        <span className="flex-1 truncate">{collectorsForAssignment[0].fullName || (collectorsForAssignment[0] as any).name}</span>
+                        <span className="text-xs text-emerald-600 font-normal shrink-0">Auto-assigned</span>
                       </div>
                     ) : (
-                      <div className="relative">
-                        <select value={selectedCollectorId} onChange={e => setSelectedCollectorId(e.target.value)}
-                          className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-sm h-11 focus:outline-none" required>
-                          <option value="">Select a collector…</option>
-                          {collectorsForAssignment.map(c => (
-                            <option key={c.id} value={c.id}>
-                              {c.fullName || (c as any).name}{isOwnerMember(c) ? " (Owner)" : ""}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                      </div>
+                      <SearchSelect
+                        options={collectorsForAssignment.map(c => ({
+                          value: c.id,
+                          label: `${c.fullName || (c as any).name || c.email}${isOwnerMember(c) ? " (Owner)" : ""}`,
+                          sublabel: c.email || "",
+                          badge: isOwnerMember(c) ? "Owner" : undefined,
+                        }))}
+                        value={selectedCollectorId}
+                        onChange={setSelectedCollectorId}
+                        placeholder="Select a collector…"
+                        searchPlaceholder="Search collectors…"
+                      />
                     )}
                   </div>
                   <Button type="submit" className="w-full h-11 font-semibold bg-indigo-600 hover:bg-indigo-700"
