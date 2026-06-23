@@ -1,7 +1,8 @@
 import { useOrganizationList, useUser, SignOutButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Building2, ChevronRight, LogOut, Loader2 } from "lucide-react";
+import { ChevronRight, LogOut, Loader2 } from "lucide-react";
+import OrgAvatar from "@/components/ui/OrgAvatar";
 import { motion } from "motion/react";
 import { BrandMark } from "@/components/BrandLogo";
 import { normalizeClerkRole, getDashboardPath, getRoleLabel } from "@/lib/auth/get-user-role";
@@ -99,9 +100,7 @@ export default function OrgSelectorPage() {
                     disabled={!!selecting}
                     className="w-full flex items-center gap-4 p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-sm transition-all text-left group disabled:opacity-60"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center shrink-0 shadow-sm">
-                      <Building2 className="w-5 h-5 text-white" />
-                    </div>
+                    <OrgAvatar imageUrl={m.organization?.imageUrl} name={orgName} size="md" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-slate-900 truncate">{orgName}</p>
                       <p className="text-xs text-slate-400 font-medium mt-0.5">{roleLabel}</p>

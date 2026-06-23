@@ -24,6 +24,7 @@ import { useDocumentRealtime, useCollectionRealtime } from "@/lib/firestore-hook
 import { Navigate } from "react-router-dom";
 import { toast } from "sonner";
 import { BrandMark } from "@/components/BrandLogo";
+import OrgAvatar from "@/components/ui/OrgAvatar";
 import OrgOverview from "./OrgOverview";
 import OrgCustomers from "./OrgCustomers";
 import OrgAgents from "./OrgAgents";
@@ -214,10 +215,10 @@ export default function OrgDashboard() {
     <div className="flex flex-col md:flex-row md:h-screen min-h-screen bg-slate-50">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-2.5 flex items-center justify-between sticky top-0 z-20">
-        {/* Left — FundCircle brand */}
-        <div className="flex items-center gap-2 shrink-0">
-          <BrandMark size="sm" />
-          <span className="font-extrabold text-slate-900 text-sm tracking-tight">FundCircle</span>
+        {/* Left — Org identity */}
+        <div className="flex items-center gap-2 shrink-0 min-w-0">
+          <OrgAvatar imageUrl={organization?.imageUrl} name={orgName} size="sm" />
+          <span className="font-extrabold text-slate-900 text-sm tracking-tight truncate max-w-[140px]">{orgName}</span>
         </div>
         {/* Right — profile avatar */}
         <button
@@ -245,6 +246,7 @@ export default function OrgDashboard() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           orgName={orgName}
+          orgImageUrl={organization?.imageUrl}
           user={user}
           menuItems={menuItems}
           unreadCount={unreadCount}
@@ -948,12 +950,17 @@ function QuickActionsFAB({
   );
 }
 
-function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, unreadCount, membershipLoading }: any) {
+function SidebarContent({ activeTab, setActiveTab, orgName, orgImageUrl, user, menuItems, unreadCount, membershipLoading }: any) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
-        <BrandMark />
-        <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{orgName}</p>
+        <div className="flex items-center gap-3">
+          <OrgAvatar imageUrl={orgImageUrl} name={orgName} size="md" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-900 truncate leading-tight">{orgName}</p>
+            <p className="text-[10px] text-slate-400 font-medium tracking-wide uppercase mt-0.5">Owner Portal</p>
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto scrollbar-hide">

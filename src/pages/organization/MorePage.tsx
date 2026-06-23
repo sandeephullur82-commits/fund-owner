@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import FieldError from "@/components/ui/FieldError";
 import { sanitizeName } from "@/lib/validation";
 import { BrandMark } from "@/components/BrandLogo";
+import OrgAvatar from "@/components/ui/OrgAvatar";
 
 type MoreSubPage = "list" | "profile" | "organization" | "notifications" | "support" | "about";
 
@@ -296,9 +297,7 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
 
       {/* Org identity */}
       <div className="flex flex-col items-center gap-3 mb-8">
-        <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-indigo-200">
-          <Building2 className="w-9 h-9 text-white" />
-        </div>
+        <OrgAvatar imageUrl={organization?.imageUrl} name={organization?.name} size="lg" className="!w-20 !h-20 !rounded-3xl !text-2xl shadow-lg" />
         {editingName ? (
           <div className="flex items-center gap-2 w-full max-w-xs">
             <Input

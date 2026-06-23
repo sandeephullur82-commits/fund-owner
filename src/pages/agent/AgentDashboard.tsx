@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useRef, useEffect } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { BrandMark } from "@/components/BrandLogo";
+import OrgAvatar from "@/components/ui/OrgAvatar";
 import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
 import CustomerDetailPage from "./CustomerDetailPage";
@@ -79,7 +79,7 @@ export default function AgentDashboard() {
       {/* Mobile Header — compact fintech style */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-2.5 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-2 min-w-0">
-          <BrandMark size="sm" />
+          <OrgAvatar imageUrl={organization?.imageUrl} name={organization?.name} size="sm" />
           {organization && (
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-none">Collection</p>
@@ -199,7 +199,13 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
       <div className="px-5 py-4 border-b border-slate-100 shrink-0">
-        <BrandMark />
+        <div className="flex items-center gap-3 mb-2">
+          <OrgAvatar imageUrl={organization?.imageUrl} name={organization?.name} size="md" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-900 truncate leading-tight">{organization?.name || "Collector Portal"}</p>
+            <p className="text-[10px] text-slate-400 font-medium tracking-wide uppercase mt-0.5">Collector Portal</p>
+          </div>
+        </div>
         {hasMultipleOrgs ? (
           <div className="relative mt-1.5" ref={dropdownRef}>
             <button

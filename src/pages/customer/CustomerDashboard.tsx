@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
+import OrgAvatar from "@/components/ui/OrgAvatar";
 import {
   LayoutDashboard, CreditCard, Plus, Wallet,
   CalendarDays, FileText, Bell, HelpCircle, User, Shield,
@@ -247,13 +248,11 @@ export default function CustomerDashboard() {
       <aside className="hidden md:flex flex-col w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800 h-full">
         {/* Logo + Org */}
         <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-8 h-8 bg-emerald-600 rounded-xl flex items-center justify-center">
-              <Wallet className="w-4.5 h-4.5 text-white" />
-            </div>
+          <div className="flex items-center gap-3 mb-3">
+            <OrgAvatar imageUrl={organization?.imageUrl} name={orgName} size="md" />
             <div className="flex-1 min-w-0">
-              <p className="font-black text-slate-900 dark:text-white text-sm leading-tight">FundCircle</p>
-              <p className="text-[10px] text-slate-400 truncate">{orgName}</p>
+              <p className="font-bold text-slate-900 dark:text-white text-sm leading-tight truncate">{orgName}</p>
+              <p className="text-[10px] text-slate-400 font-medium tracking-wide uppercase mt-0.5">Customer Portal</p>
             </div>
           </div>
 
@@ -339,13 +338,11 @@ export default function CustomerDashboard() {
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
           <aside className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-slate-900 flex flex-col shadow-2xl">
             <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-emerald-600 rounded-xl flex items-center justify-center">
-                  <Wallet className="w-4 h-4 text-white" />
-                </div>
+              <div className="flex items-center gap-3">
+                <OrgAvatar imageUrl={organization?.imageUrl} name={orgName} size="sm" />
                 <div>
-                  <p className="font-black text-slate-900 dark:text-white text-sm">FundCircle</p>
-                  <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{orgName}</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-sm truncate max-w-[150px]">{orgName}</p>
+                  <p className="text-[10px] text-slate-400 font-medium tracking-wide uppercase mt-0.5">Customer Portal</p>
                 </div>
               </div>
               <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -418,11 +415,9 @@ export default function CustomerDashboard() {
             <Menu className="w-5 h-5 text-slate-700 dark:text-slate-300" />
           </button>
 
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-6 bg-emerald-600 rounded-lg flex items-center justify-center">
-              <Wallet className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-black text-slate-900 dark:text-white text-sm">FundCircle</span>
+          <div className="flex items-center gap-2">
+            <OrgAvatar imageUrl={organization?.imageUrl} name={orgName} size="xs" />
+            <span className="font-bold text-slate-900 dark:text-white text-sm truncate max-w-[120px]">{orgName}</span>
           </div>
 
           <div className="flex items-center gap-2">
