@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   CreditCard, Banknote, Loader2, AlertTriangle, CheckCircle2,
-  TrendingDown, ZapOff, ChevronRight,
+  TrendingDown, ChevronRight, ZapOff, Sparkles,
 } from "lucide-react";
 import { Loan, LoanInstallment } from "@/types";
 import {
@@ -24,7 +24,7 @@ import FieldError from "@/components/ui/FieldError";
 
 type PaymentMode   = "CASH" | "UPI" | "BANK_TRANSFER";
 type CollectMode   = "LOAN_EMI" | "GENERAL" | null;
-type RepaymentType = "REGULAR" | "PARTIAL" | "ADVANCE" | "FORECLOSURE";
+type RepaymentType = "REGULAR_EMI" | "PARTIAL_PAYMENT" | "ADVANCE_PAYMENT" | "FORECLOSURE";
 
 export function toDate(ts: any): Date {
   if (!ts) return new Date(0);
@@ -44,19 +44,78 @@ interface CollectDialogProps {
   collectedById?: string;
 }
 
-const REPAYMENT_TYPES: { id: RepaymentType; label: string; sublabel: string; icon: React.ElementType; color: string }[] = [
-  { id: "REGULAR",     label: "Regular EMI",     sublabel: "Pay monthly EMI",       icon: CheckCircle2,  color: "indigo"  },
-  { id: "PARTIAL",     label: "Partial",          sublabel: "Pay less than EMI",     icon: TrendingDown,  color: "amber"   },
-  { id: "ADVANCE",     label: "Advance",          sublabel: "Pay multiple EMIs",     icon: CreditCard,    color: "emerald" },
-  { id: "FORECLOSURE", label: "Foreclosure",      sublabel: "Pay full outstanding",  icon: ZapOff,        color: "rose"    },
-];
-
-const COLOR_MAP: Record<string, { active: string; ring: string; text: string }> = {
-  indigo:  { active: "bg-indigo-600 text-white border-indigo-600",   ring: "ring-indigo-300",  text: "text-indigo-700"  },
-  amber:   { active: "bg-amber-500 text-white border-amber-500",     ring: "ring-amber-300",   text: "text-amber-700"   },
-  emerald: { active: "bg-emerald-600 text-white border-emerald-600", ring: "ring-emerald-300", text: "text-emerald-700" },
-  rose:    { active: "bg-rose-600 text-white border-rose-600",       ring: "ring-rose-300",    text: "text-rose-700"    },
+const TYPE_META: Record<RepaymentType, {
+  label: string;
+  sublabel: string;
+  icon: React.ElementType;
+  badge: string;
+  border: string;
+  bg: string;
+  text: string;
+}> = {
+  REGULAR_EMI: {
+    label:    "Regular EMI",
+    sublabel: "Exact EMI amount detected",
+    icon:     CheckCircle2,
+    badge:    "bg-indigo-100 text-indigo-700 border-indigo-200",
+    border:   "border-indigo-200",
+    bg:       "bg-indigo-50",
+    text:     "text-indigo-700",
+  },
+  PARTIAL_PAYMENT: {
+    label:    "Partial Payment",
+    sublabel: "Amount is less than EMI",
+    icon:     TrendingDown,
+    badge:    "bg-amber-100 text-amber-700 border-amber-200",
+    border:   "border-amber-200",
+    bg:       "bg-amber-50",
+    text:     "text-amber-700",
+  },
+  ADVANCE_PAYMENT: {
+    label:    "Advance Payment",
+    sublabel: "Covers more than one EMI",
+    icon:     CreditCard,
+    badge:    "bg-emerald-100 text-emerald-700 border-emerald-200",
+    border:   "border-emerald-200",
+    bg:       "bg-emerald-50",
+    text:     "text-emerald-700",
+  },
+  FORECLOSURE: {
+    label:    "Foreclosure",
+    sublabel: "Settles entire outstanding balance",
+    icon:     ZapOff,
+    badge:    "bg-rose-100 text-rose-700 border-rose-200",
+    border:   "border-rose-200",
+    bg:       "bg-rose-50",
+    text:     "text-rose-700",
+  },
 };
+
+const SUBMIT_COLORS: Record<RepaymentType, string> = {
+  REGULAR_EMI:     "bg-indigo-600 hover:bg-indigo-700",
+  PARTIAL_PAYMENT: "bg-amber-500  hover:bg-amber-600",
+  ADVANCE_PAYMENT: "bg-emerald-600 hover:bg-emerald-700",
+  FORECLOSURE:     "bg-rose-600   hover:bg-rose-700",
+};
+
+const SUBMIT_LABELS: Record<RepaymentType, string> = {
+  REGULAR_EMI:     "Collect EMI",
+  PARTIAL_PAYMENT: "Record Partial Payment",
+  ADVANCE_PAYMENT: "Record Advance Payment",
+  FORECLOSURE:     "Confirm Foreclosure",
+};
+
+function detectRepaymentType(
+  num: number,
+  emi: number,
+  outstanding: number,
+): RepaymentType | null {
+  if (!num || num <= 0) return null;
+  if (num >= outstanding - 0.05)          return "FORECLOSURE";
+  if (emi > 0 && Math.abs(num - emi) <= 1) return "REGULAR_EMI";
+  if (emi > 0 && num > emi + 1)            return "ADVANCE_PAYMENT";
+  return "PARTIAL_PAYMENT";
+}
 
 export default function CollectDialog({
   customer, orgId, orgName, agentId, agentName, onClose,
@@ -66,7 +125,6 @@ export default function CollectDialog({
   const [activeLoan,      setActiveLoan]      = useState<Loan | null>(null);
   const [nextInstallment, setNextInstallment] = useState<LoanInstallment | null>(null);
   const [loadingDetails,  setLoadingDetails]  = useState(false);
-  const [repaymentType,   setRepaymentType]   = useState<RepaymentType>("REGULAR");
   const [amount,          setAmount]          = useState("");
   const [amountError,     setAmountError]     = useState("");
   const [paymentMode,     setPaymentMode]     = useState<PaymentMode>("CASH");
@@ -83,18 +141,15 @@ export default function CollectDialog({
     setLoadingDetails(true);
     setAmount(""); setAmountError(""); setPaymentMode("CASH");
     setNotes(""); setActiveLoan(null); setNextInstallment(null);
-    setRepaymentType("REGULAR");
 
     (async () => {
       try {
         const loan = await getActiveLoanForCustomer(customer.id, orgId);
-        // Filter out closed loans
         if (loan && (loan.status === "CLOSED" || (loan.outstandingBalance ?? 0) <= 0)) {
           setActiveLoan(null);
           setCollectMode("GENERAL");
         } else if (loan) {
           setActiveLoan(loan);
-          // Sync installment statuses on load so DUE/OVERDUE/UPCOMING are current
           try { await syncInstallmentStatuses(loan.id); } catch (_) {}
           const inst = await getNextPendingInstallment(loan.id);
           setNextInstallment(inst);
@@ -112,79 +167,71 @@ export default function CollectDialog({
     })();
   }, [customer?.id]);
 
-  // When repayment type changes, pre-fill amount accordingly
-  useEffect(() => {
-    if (!activeLoan) return;
-    if (repaymentType === "REGULAR" && nextInstallment) {
-      setAmount(String(Math.round(nextInstallment.emiAmount || 0)));
-    } else if (repaymentType === "FORECLOSURE") {
-      setAmount(String(Math.round((activeLoan.outstandingBalance ?? 0) * 100) / 100));
-    } else if (repaymentType === "ADVANCE") {
-      setAmount("");
-    } else if (repaymentType === "PARTIAL") {
-      setAmount("");
-    }
-    setAmountError("");
-  }, [repaymentType]);
+  const outstanding  = activeLoan ? (activeLoan.outstandingBalance ?? 0) : 0;
+  const emiAmount    = nextInstallment ? (nextInstallment.emiAmount ?? 0) : 0;
+  const custName     = customer ? (customer.fullName || customer.name || customer.email || "") : "";
+  const numAmount    = Number(amount);
 
-  // Live advance payment preview
+  const detectedType = useMemo<RepaymentType | null>(() => {
+    if (collectMode !== "LOAN_EMI" || !activeLoan) return null;
+    if (!amount.trim() || isNaN(numAmount) || numAmount <= 0) return null;
+    return detectRepaymentType(numAmount, emiAmount, outstanding);
+  }, [amount, emiAmount, outstanding, collectMode, activeLoan]);
+
+  const exceedsOutstanding = numAmount > outstanding + 0.05 && numAmount > 0;
+
   const advancePreview = useMemo(() => {
-    if (repaymentType !== "ADVANCE" || !nextInstallment || !amount) return null;
-    const num = Number(amount);
-    if (!num || num <= 0) return null;
-    const emi = nextInstallment.emiAmount ?? 0;
-    if (emi <= 0) return null;
-    const fullEMIs = Math.floor(num / emi);
-    const partial  = num - fullEMIs * emi;
+    if (detectedType !== "ADVANCE_PAYMENT" || !nextInstallment || !numAmount) return null;
+    if (emiAmount <= 0) return null;
+    const fullEMIs = Math.floor(numAmount / emiAmount);
+    const partial  = numAmount - fullEMIs * emiAmount;
     return { fullEMIs, partial: Math.round(partial * 100) / 100 };
-  }, [repaymentType, amount, nextInstallment]);
+  }, [detectedType, numAmount, emiAmount, nextInstallment]);
 
-  const outstanding = activeLoan ? (activeLoan.outstandingBalance ?? 0) : 0;
-  const custName    = customer ? (customer.fullName || customer.name || customer.email || "") : "";
+  const partialRemaining = useMemo(() => {
+    if (detectedType !== "PARTIAL_PAYMENT" || !nextInstallment || !numAmount) return null;
+    return Math.max(0, Math.round((emiAmount - numAmount) * 100) / 100);
+  }, [detectedType, numAmount, emiAmount, nextInstallment]);
 
-  const validateAmount = (num: number): string | null => {
-    if (!num || isNaN(num) || num <= 0) return "Amount must be greater than ₹0";
-    if (num > outstanding + 0.05) return `Collection exceeds outstanding balance of ₹${outstanding.toLocaleString("en-IN")}`;
-    if (repaymentType === "PARTIAL" && nextInstallment) {
-      const emi = nextInstallment.emiAmount ?? 0;
-      if (num >= emi - 0.05) return `For partial payment enter less than EMI amount (₹${Math.round(emi).toLocaleString("en-IN")})`;
-    }
-    return null;
+  const handleAmountChange = (val: string) => {
+    setAmount(val.replace(/[^0-9.]/g, ""));
+    setAmountError("");
   };
 
   const handleCollectEMI = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer || !activeLoan || !agentId) return;
 
-    if (repaymentType === "FORECLOSURE") {
-      await handleForeclosure();
+    const num = numAmount;
+    if (!num || isNaN(num) || num <= 0) { setAmountError("Amount must be greater than ₹0"); return; }
+    if (num > outstanding + 0.05) {
+      setAmountError(`Amount exceeds outstanding balance of ₹${outstanding.toLocaleString("en-IN")}`);
       return;
     }
 
-    const num = Number(amount);
-    const err = validateAmount(num);
-    if (err) { setAmountError(err); return; }
-    if (repaymentType !== "ADVANCE" && !nextInstallment) {
+    const type = detectedType;
+    if (!type) { setAmountError("Enter a valid amount"); return; }
+
+    if ((type === "REGULAR_EMI" || type === "PARTIAL_PAYMENT") && !nextInstallment) {
       setAmountError("No pending installment found"); return;
     }
+
     setAmountError("");
     setSubmitting(true);
 
-    try {
-      const collectorInfo = {
-        organizationId: orgId, organizationName: orgName,
-        loanId: activeLoan.id, customerId: customer.id,
-        agentId, agentName,
-        paymentMode,
-        ...(collectedByRole ? { collectedByRole } : {}),
-        ...(collectedById   ? { collectedById   } : {}),
-      };
+    const collectorInfo = {
+      organizationId: orgId, organizationName: orgName,
+      loanId: activeLoan.id, customerId: customer.id,
+      agentId, agentName, paymentMode,
+      ...(collectedByRole ? { collectedByRole } : {}),
+      ...(collectedById   ? { collectedById   } : {}),
+    };
 
-      if (repaymentType === "REGULAR") {
-        if (!nextInstallment) return;
+    try {
+      if (type === "REGULAR_EMI") {
         const result = await recordEMICollection({
           ...collectorInfo,
-          installmentId: nextInstallment.id,
+          installmentId: nextInstallment!.id,
           amount: num,
         });
         setReceipt({
@@ -192,16 +239,15 @@ export default function CollectDialog({
           customerName: custName, amount: num,
           collectionType: "LOAN_EMI", repaymentType: "REGULAR",
           loanOutstanding: result.loanClosed ? 0 : Math.max(0, outstanding - num),
-          installmentNo: nextInstallment.installmentNo, agentName, collectedAt: new Date(),
+          installmentNo: nextInstallment!.installmentNo, agentName, collectedAt: new Date(),
         });
         onClose();
         toast.success(`EMI ₹${num.toLocaleString("en-IN")} collected · ${result.receiptNo}`);
 
-      } else if (repaymentType === "PARTIAL") {
-        if (!nextInstallment) return;
+      } else if (type === "PARTIAL_PAYMENT") {
         const result = await recordPartialPayment({
           ...collectorInfo,
-          installmentId: nextInstallment.id,
+          installmentId: nextInstallment!.id,
           amount: num,
         });
         setReceipt({
@@ -209,12 +255,12 @@ export default function CollectDialog({
           customerName: custName, amount: num,
           collectionType: "LOAN_EMI", repaymentType: "PARTIAL",
           loanOutstanding: result.loanClosed ? 0 : Math.max(0, outstanding - num),
-          installmentNo: nextInstallment.installmentNo, agentName, collectedAt: new Date(),
+          installmentNo: nextInstallment!.installmentNo, agentName, collectedAt: new Date(),
         });
         onClose();
         toast.success(`Partial ₹${num.toLocaleString("en-IN")} collected · ${result.receiptNo}`);
 
-      } else if (repaymentType === "ADVANCE") {
+      } else if (type === "ADVANCE_PAYMENT") {
         const result = await recordAdvancePayment({
           ...collectorInfo,
           amount: num,
@@ -228,33 +274,26 @@ export default function CollectDialog({
         });
         onClose();
         toast.success(`Advance ₹${num.toLocaleString("en-IN")} · ${result.emisCleared} EMI${result.emisCleared !== 1 ? "s" : ""} cleared · ${result.receiptNo}`);
+
+      } else if (type === "FORECLOSURE") {
+        const result = await recordForeclosure({
+          organizationId: orgId, organizationName: orgName,
+          loanId: activeLoan.id, customerId: customer.id,
+          agentId, agentName, paymentMode,
+          ...(collectedByRole ? { collectedByRole } : {}),
+          ...(collectedById   ? { collectedById   } : {}),
+        });
+        setReceipt({
+          receiptNo: result.receiptNo, organizationName: orgName,
+          customerName: custName, amount: result.amountPaid,
+          collectionType: "LOAN_EMI", repaymentType: "FORECLOSURE",
+          loanOutstanding: 0, agentName, collectedAt: new Date(),
+        });
+        onClose();
+        toast.success(`Loan foreclosed · ₹${result.amountPaid.toLocaleString("en-IN")} settled · ${result.receiptNo}`);
       }
     } catch (err: any) {
       toast.error(err?.message || "Collection failed.");
-    } finally { setSubmitting(false); }
-  };
-
-  const handleForeclosure = async () => {
-    if (!activeLoan || !customer || !agentId) return;
-    setSubmitting(true);
-    try {
-      const result = await recordForeclosure({
-        organizationId: orgId, organizationName: orgName,
-        loanId: activeLoan.id, customerId: customer.id,
-        agentId, agentName, paymentMode,
-        ...(collectedByRole ? { collectedByRole } : {}),
-        ...(collectedById   ? { collectedById   } : {}),
-      });
-      setReceipt({
-        receiptNo: result.receiptNo, organizationName: orgName,
-        customerName: custName, amount: result.amountPaid,
-        collectionType: "LOAN_EMI", repaymentType: "FORECLOSURE",
-        loanOutstanding: 0, agentName, collectedAt: new Date(),
-      });
-      onClose();
-      toast.success(`Loan foreclosed · ₹${result.amountPaid.toLocaleString("en-IN")} settled · ${result.receiptNo}`);
-    } catch (err: any) {
-      toast.error(err?.message || "Foreclosure failed.");
     } finally { setSubmitting(false); }
   };
 
@@ -287,19 +326,15 @@ export default function CollectDialog({
     } finally { setSubmitting(false); }
   };
 
-  const submitBtnColor = {
-    REGULAR:     "bg-indigo-600 hover:bg-indigo-700",
-    PARTIAL:     "bg-amber-500 hover:bg-amber-600",
-    ADVANCE:     "bg-emerald-600 hover:bg-emerald-700",
-    FORECLOSURE: "bg-rose-600 hover:bg-rose-700",
-  }[repaymentType] || "bg-indigo-600 hover:bg-indigo-700";
+  const canSubmit =
+    !submitting &&
+    !loadingDetails &&
+    !exceedsOutstanding &&
+    !!detectedType &&
+    numAmount > 0;
 
-  const submitLabel = {
-    REGULAR:     "Collect EMI",
-    PARTIAL:     "Record Partial Payment",
-    ADVANCE:     "Record Advance Payment",
-    FORECLOSURE: "Confirm Foreclosure",
-  }[repaymentType] || "Collect";
+  const submitBtnColor = detectedType ? SUBMIT_COLORS[detectedType] : "bg-indigo-600 hover:bg-indigo-700";
+  const submitLabel    = detectedType ? SUBMIT_LABELS[detectedType] : "Collect";
 
   return (
     <>
@@ -329,21 +364,27 @@ export default function CollectDialog({
                 ) : (
                   <>
                     {collectMode === "LOAN_EMI" && activeLoan && (
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
-                        <span className="text-xs text-slate-500">Outstanding Balance</span>
-                        <span className="font-bold text-indigo-600 text-sm">₹{outstanding.toLocaleString("en-IN")}</span>
-                      </div>
-                    )}
-                    {collectMode === "LOAN_EMI" && nextInstallment && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-500">EMI #{nextInstallment.installmentNo}</span>
-                        <span className="text-xs font-semibold text-slate-700">
-                          ₹{Math.round(nextInstallment.emiAmount || 0).toLocaleString("en-IN")}/mo
-                        </span>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
+                          <span className="text-xs text-slate-500">Outstanding Balance</span>
+                          <span className="font-bold text-indigo-600 text-sm">
+                            ₹{outstanding.toLocaleString("en-IN")}
+                          </span>
+                        </div>
+                        {nextInstallment && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500">Monthly EMI</span>
+                            <span className="text-xs font-semibold text-slate-700">
+                              ₹{Math.round(emiAmount).toLocaleString("en-IN")}/mo
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
                     {collectMode === "GENERAL" && (
-                      <p className="text-xs text-emerald-600 mt-1 pt-1 border-t border-slate-200">General collection</p>
+                      <p className="text-xs text-emerald-600 mt-1 pt-1 border-t border-slate-200">
+                        General collection
+                      </p>
                     )}
                   </>
                 )}
@@ -352,107 +393,107 @@ export default function CollectDialog({
               {/* ── LOAN EMI FORM ── */}
               {collectMode === "LOAN_EMI" && activeLoan && !loadingDetails && (
                 <form onSubmit={handleCollectEMI} className="space-y-4">
-                  {/* Repayment type selector */}
+
+                  {/* Amount input */}
                   <div className="space-y-2">
-                    <Label className="text-xs text-slate-500 uppercase tracking-wide">Repayment Type</Label>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {REPAYMENT_TYPES.map((rt) => {
-                        const Icon = rt.icon;
-                        const isActive = repaymentType === rt.id;
-                        const colors = COLOR_MAP[rt.color];
-                        return (
-                          <button
-                            key={rt.id}
-                            type="button"
-                            onClick={() => { setRepaymentType(rt.id); setAmountError(""); }}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all text-xs font-semibold ${
-                              isActive
-                                ? `${colors.active} shadow-sm`
-                                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-                            }`}
-                          >
-                            <Icon className="w-3.5 h-3.5 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="leading-tight">{rt.label}</p>
-                              <p className={`text-[10px] font-normal leading-tight ${isActive ? "opacity-80" : "text-slate-400"}`}>
-                                {rt.sublabel}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <Label htmlFor="cd-emi-amt">
+                      Payment Amount (₹)
+                    </Label>
+                    <Input
+                      id="cd-emi-amt"
+                      type="number"
+                      inputMode="decimal"
+                      min="1"
+                      placeholder={`e.g. ₹${Math.round(emiAmount).toLocaleString("en-IN")}`}
+                      value={amount}
+                      onChange={(e) => handleAmountChange(e.target.value)}
+                      className={`text-xl h-12 font-bold ${
+                        exceedsOutstanding || amountError ? "border-red-400" : detectedType ? `border-2 ${TYPE_META[detectedType].border}` : ""
+                      }`}
+                      autoFocus
+                      disabled={submitting}
+                    />
+
+                    {/* Exceeds outstanding error */}
+                    {exceedsOutstanding && (
+                      <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        Amount exceeds outstanding balance of ₹{outstanding.toLocaleString("en-IN")}
+                      </div>
+                    )}
+                    <FieldError error={amountError} />
                   </div>
 
-                  {/* Foreclosure confirmation box */}
-                  {repaymentType === "FORECLOSURE" ? (
-                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  {/* Auto-detected repayment type badge */}
+                  {detectedType && !exceedsOutstanding ? (
+                    <div className={`rounded-xl border px-4 py-3 space-y-2 ${TYPE_META[detectedType].bg} ${TYPE_META[detectedType].border}`}>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className={`w-3.5 h-3.5 shrink-0 ${TYPE_META[detectedType].text}`} />
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                          Detected Repayment Type
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {React.createElement(TYPE_META[detectedType].icon, {
+                          className: `w-4 h-4 shrink-0 ${TYPE_META[detectedType].text}`,
+                        })}
                         <div>
-                          <p className="text-sm font-bold text-rose-800">Loan Foreclosure</p>
-                          <p className="text-xs text-rose-600 mt-0.5">This will settle the entire outstanding balance and close the loan immediately.</p>
-                        </div>
-                      </div>
-                      <div className="bg-white rounded-lg px-4 py-3 flex justify-between items-center border border-rose-100">
-                        <span className="text-sm text-slate-600">Settlement Amount</span>
-                        <span className="text-lg font-black text-rose-700">₹{outstanding.toLocaleString("en-IN")}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Amount input */
-                    <div className="space-y-1.5">
-                      <Label htmlFor="cd-emi-amt">
-                        {repaymentType === "REGULAR"  && "EMI Amount (₹)"}
-                        {repaymentType === "PARTIAL"  && "Partial Amount (₹)"}
-                        {repaymentType === "ADVANCE"  && "Advance Amount (₹)"}
-                      </Label>
-                      <Input
-                        id="cd-emi-amt"
-                        type="number" inputMode="decimal" min="1"
-                        placeholder={
-                          repaymentType === "PARTIAL"  ? `Less than ₹${Math.round(nextInstallment?.emiAmount || 0)}` :
-                          repaymentType === "ADVANCE"  ? `e.g. ${Math.round((nextInstallment?.emiAmount || 0) * 3)}` :
-                          `₹${Math.round(nextInstallment?.emiAmount || 0)}`
-                        }
-                        value={amount}
-                        onChange={(e) => {
-                          if (repaymentType === "REGULAR") return;
-                          setAmount(e.target.value.replace(/[^0-9.]/g, ""));
-                          setAmountError("");
-                        }}
-                        className={`text-xl h-12 font-bold ${amountError ? "border-red-400" : ""} ${repaymentType === "REGULAR" ? "bg-slate-50 cursor-default" : ""}`}
-                        autoFocus={repaymentType !== "REGULAR"}
-                        disabled={submitting}
-                        readOnly={repaymentType === "REGULAR"}
-                      />
-                      <FieldError error={amountError} />
-
-                      {/* Advance preview */}
-                      {repaymentType === "ADVANCE" && advancePreview && (
-                        <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 flex items-center gap-2">
-                          <ChevronRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <p className="text-xs text-emerald-700 font-semibold">
-                            Clears <strong>{advancePreview.fullEMIs}</strong> EMI{advancePreview.fullEMIs !== 1 ? "s" : ""}
-                            {advancePreview.partial > 0 && ` + partial ₹${advancePreview.partial.toLocaleString("en-IN")}`}
+                          <p className={`text-sm font-bold leading-tight ${TYPE_META[detectedType].text}`}>
+                            {TYPE_META[detectedType].label}
+                          </p>
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            {TYPE_META[detectedType].sublabel}
                           </p>
                         </div>
-                      )}
+                      </div>
 
-                      {/* Partial hint */}
-                      {repaymentType === "PARTIAL" && nextInstallment && (
-                        <p className="text-xs text-amber-600">
-                          Enter any amount less than EMI (₹{Math.round(nextInstallment.emiAmount || 0).toLocaleString("en-IN")}). Installment will be marked PARTIAL.
+                      {/* REGULAR EMI hint */}
+                      {detectedType === "REGULAR_EMI" && nextInstallment && (
+                        <p className="text-xs text-indigo-600">
+                          EMI #{nextInstallment.installmentNo} will be marked as paid.
                         </p>
                       )}
 
-                      {/* Outstanding guard */}
-                      {repaymentType === "ADVANCE" && Number(amount) > outstanding && (
-                        <p className="text-xs text-red-600 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Exceeds outstanding balance of ₹{outstanding.toLocaleString("en-IN")}
+                      {/* PARTIAL hint */}
+                      {detectedType === "PARTIAL_PAYMENT" && partialRemaining !== null && (
+                        <p className="text-xs text-amber-700">
+                          Remaining balance on this EMI: <strong>₹{partialRemaining.toLocaleString("en-IN")}</strong>. Installment will be marked PARTIAL.
                         </p>
+                      )}
+
+                      {/* ADVANCE preview */}
+                      {detectedType === "ADVANCE_PAYMENT" && advancePreview && (
+                        <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+                          <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+                          Clears <strong>{advancePreview.fullEMIs}</strong> full EMI{advancePreview.fullEMIs !== 1 ? "s" : ""}
+                          {advancePreview.partial > 0 && ` + ₹${advancePreview.partial.toLocaleString("en-IN")} partial`}
+                        </div>
+                      )}
+
+                      {/* FORECLOSURE warning */}
+                      {detectedType === "FORECLOSURE" && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-start gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-500 mt-0.5" />
+                            <p className="text-xs text-rose-700 leading-snug">
+                              This will settle the entire outstanding balance and <strong>close the loan immediately</strong>.
+                            </p>
+                          </div>
+                          <div className="bg-white rounded-lg px-3 py-2 flex justify-between items-center border border-rose-100">
+                            <span className="text-xs text-slate-500">Settlement Amount</span>
+                            <span className="text-base font-black text-rose-700">
+                              ₹{outstanding.toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                        </div>
                       )}
                     </div>
+                  ) : (
+                    !exceedsOutstanding && amount.trim() === "" && nextInstallment && (
+                      <p className="text-xs text-slate-400 text-center">
+                        Enter an amount — repayment type will be detected automatically
+                      </p>
+                    )
                   )}
 
                   {/* Payment Mode */}
@@ -480,7 +521,7 @@ export default function CollectDialog({
                     <Button
                       type="submit"
                       className={`flex-1 h-11 text-white ${submitBtnColor}`}
-                      disabled={submitting || loadingDetails || (repaymentType !== "FORECLOSURE" && !nextInstallment && repaymentType !== "ADVANCE")}
+                      disabled={!canSubmit}
                     >
                       {submitting
                         ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
@@ -490,7 +531,7 @@ export default function CollectDialog({
                 </form>
               )}
 
-              {/* No active loan in EMI mode */}
+              {/* No active loan */}
               {collectMode === "LOAN_EMI" && !activeLoan && !loadingDetails && (
                 <p className="text-xs text-amber-600 bg-amber-50 rounded-xl p-3 border border-amber-100">
                   ℹ No active loan found for this customer.
