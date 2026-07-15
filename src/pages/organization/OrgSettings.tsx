@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import FieldError from "@/components/ui/FieldError";
 import { sanitizeName, validatePhone10 } from "@/lib/validation";
+import PhonePeSettings from "./PhonePeSettings";
 
 type SectionId = "organization" | "profile" | "notifications" | "security" | "payments";
 
@@ -637,6 +638,14 @@ export default function OrgSettings() {
                     </div>
 
                     <SaveButton onClick={savePaymentSettings} state={paymentSaveState} label="Save Payment Settings" />
+
+                    {/* ── PhonePe Payment Gateway ── */}
+                    <div className="pt-5 border-t border-slate-100 space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        Payment Gateway
+                      </p>
+                      <PhonePeSettings />
+                    </div>
                   </>
                 )}
               </CardContent>

@@ -24,6 +24,7 @@ import {
 } from "@/lib/services";
 import ReceiptModal, { ReceiptData } from "@/components/ReceiptModal";
 import FieldError from "@/components/ui/FieldError";
+import PhonePeQRPanel from "./PhonePeQRPanel";
 
 type PaymentMode   = "CASH" | "UPI" | "BANK_TRANSFER";
 type CollectMode   = "LOAN_EMI" | "GENERAL" | null;
@@ -165,6 +166,11 @@ export default function CollectDialog({
 
   const isOwner = collectedByRole === "OWNER";
 
+  // PhonePe gateway
+  const phonePeConfigured = orgData?.phonePeConfigured === true;
+  const [phonePeMode, setPhonePeMode] = useState(true); // prefer PhonePe when configured
+  const phonePeTxnRefOverride = React.useRef<string>(""); // cross-render override for txnRef
+
   useEffect(() => {
     const up   = () => setIsOnline(true);
     const down = () => setIsOnline(false);
@@ -177,6 +183,8 @@ export default function CollectDialog({
     setUpiStatus("idle");
     setUpiTxnRef("");
     setQrError(false);
+    setPhonePeMode(true); // reset to PhonePe-first when conditions change
+    phonePeTxnRefOverride.current = "";
   }, [amount, paymentMode]);
 
   useEffect(() => {
@@ -290,7 +298,7 @@ export default function CollectDialog({
       ...(collectedByRole ? { collectedByRole } : {}),
       ...(collectedById   ? { collectedById   } : {}),
     };
-    const txnRef = upiTxnRef.trim() || undefined;
+    const txnRef = (phonePeTxnRefOverride.current || upiTxnRef).trim() || undefined;
 
     try {
       if (type === "REGULAR_EMI") {
@@ -598,7 +606,33 @@ export default function CollectDialog({
                   </div>
 
                   {/* ── UPI PAYMENT PANEL ── */}
-                  {showUpiPanel ? (
+                  {showUpiPanel && phonePeConfigured && phonePeMode ? (
+                    /* PhonePe dynamic QR (when org has PhonePe gateway configured) */
+                    <PhonePeQRPanel
+                      orgId={orgId}
+                      orgName={orgName}
+                      loanId={activeLoan?.id}
+                      installmentId={nextInstallment?.id}
+                      customerId={customer?.id || ""}
+                      customerName={custName}
+                      customerPhone={customer?.phone || customer?.mobile || ""}
+                      agentId={agentId}
+                      agentName={agentName}
+                      amount={numAmount}
+                      installmentNo={nextInstallment?.installmentNo}
+                      collectionType="LOAN_EMI"
+                      collectedByRole={collectedByRole}
+                      collectedById={collectedById}
+                      onSuccess={(phonePeTxnId, utr) => {
+                        phonePeTxnRefOverride.current = phonePeTxnId || utr || "";
+                        setUpiTxnRef(phonePeTxnId || utr || "");
+                        executeEMICollection();
+                      }}
+                      onCancel={onClose}
+                      onSwitchToStatic={() => setPhonePeMode(false)}
+                    />
+                  ) : showUpiPanel ? (
+                    /* Static UPI QR (fallback or when PhonePe not configured) */
                     <UpiPaymentPanel
                       isOnline={isOnline}
                       orgUpiId={orgUpiId}

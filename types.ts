@@ -532,6 +532,34 @@ export interface LoanApplication {
   updatedAt?: FSTimestamp;
 }
 
+// ── PhonePe Payment Orders ────────────────────────────────────────────────────
+export type PhonePeOrderStatus =
+  | "INITIATED" | "PENDING" | "SUCCESS" | "FAILED" | "EXPIRED" | "COMPLETED";
+
+export interface PhonePeOrder {
+  id:                    string; // = merchantTransactionId
+  merchantTransactionId: string;
+  organizationId:        string;
+  loanId?:               string;
+  installmentId?:        string;
+  customerId:            string;
+  customerName:          string;
+  agentId:               string;
+  agentName:             string;
+  amount:                number; // rupees
+  status:                PhonePeOrderStatus;
+  collectionType:        "LOAN_EMI" | "GENERAL";
+  installmentNo?:        number;
+  phonePeTransactionId?: string; // PG's own txn ID on success
+  utr?:                  string; // bank UTR reference
+  collectionRecorded?:   boolean;
+  errorCode?:            string;
+  errorMessage?:         string;
+  expiresAt:             FSTimestamp;
+  createdAt:             FSTimestamp;
+  updatedAt:             FSTimestamp;
+}
+
 // ── EMIPayment (legacy) ───────────────────────────────────────────────────────
 export interface EMIPayment {
   id: string;

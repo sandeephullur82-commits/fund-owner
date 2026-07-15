@@ -304,6 +304,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ── PhonePe Payment Orders ────────────────────────────────────────────────
+    // Owners/agents can read their org's orders for realtime status updates.
+    // Writes are server-only (via Firestore REST API with API key); client writes denied.
+    match /phonePeOrders/{txnId} {
+      allow read: if isSignedIn() && isOwnerOrAgent(resource.data.organizationId);
+      allow write: if false; // server-only
+    }
+
+    // ── PhonePe Merchant Config ───────────────────────────────────────────────
+    // Contains AES-256 encrypted merchant credentials. Client access fully denied.
+    // The server reads/writes via REST API with VITE_FIREBASE_API_KEY (bypasses rules
+    // only while Firestore security rules are in permissive mode during development).
+    match /orgPhonePeConfig/{orgId} {
+      allow read, write: if false; // server-only, credentials are encrypted at rest
+    }
+
     // ── Default deny ─────────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;

@@ -1,6 +1,11 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { createClerkClient, verifyToken } from "@clerk/backend";
+import {
+  encryptField, decryptField,
+  createPhonePeOrder, checkPhonePeStatus, verifyPhonePeWebhook,
+  generateMerchantTransactionId,
+} from "./phonepe";
 
 // ─── Process-level crash guards ───────────────────────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -986,6 +991,363 @@ app.post("/api/remove-org-logo", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: msg });
   }
 });
+
+// ─── Firestore server-side GET helper ────────────────────────────────────────
+async function fsGet(col: string, docId: string): Promise<Record<string, any> | null> {
+  if (!FIREBASE_API_KEY) return null;
+  try {
+    const url  = `${FS_BASE}/${col}/${encodeURIComponent(docId)}?key=${FIREBASE_API_KEY}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data: any = await resp.json();
+    return data.fields ?? null;
+  } catch { return null; }
+}
+
+function fsVal(field: any): any {
+  if (!field) return null;
+  if (field.stringValue    !== undefined) return field.stringValue;
+  if (field.integerValue   !== undefined) return Number(field.integerValue);
+  if (field.doubleValue    !== undefined) return Number(field.doubleValue);
+  if (field.booleanValue   !== undefined) return field.booleanValue;
+  if (field.timestampValue !== undefined) return field.timestampValue;
+  if (field.nullValue      !== undefined) return null;
+  if (field.mapValue?.fields) {
+    return Object.fromEntries(
+      Object.entries<any>(field.mapValue.fields).map(([k, v]) => [k, fsVal(v)])
+    );
+  }
+  return null;
+}
+
+function fsFieldsToObj(fields: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, fsVal(v)]));
+}
+
+// ─── PhonePe Payment Gateway Routes ──────────────────────────────────────────
+
+async function loadPhonePeConfig(organizationId: string) {
+  const fields = await fsGet("orgPhonePeConfig", organizationId);
+  if (!fields) return null;
+  const cfg = fsFieldsToObj(fields);
+  if (cfg.deleted || !cfg.merchantId) return null;
+  try {
+    return {
+      merchantId:    cfg.merchantId as string,
+      clientId:      decryptField(cfg.clientId || ""),
+      clientSecret:  decryptField(cfg.clientSecret || ""),
+      saltKey:       decryptField(cfg.saltKey || ""),
+      saltIndex:     (cfg.saltIndex || "1") as string,
+      webhookSecret: decryptField(cfg.webhookSecret || ""),
+      environment:   (cfg.environment || "sandbox") as "sandbox" | "production",
+    };
+  } catch { return null; }
+}
+
+// POST /api/phonepe/save-config — Owner saves encrypted PhonePe credentials
+app.post("/api/phonepe/save-config", authMiddleware, async (req: Request, res: Response) => {
+  const callerClerkId = (req as any).clerkUserId as string;
+  const { organizationId, merchantId, clientId, clientSecret, saltKey, saltIndex, webhookSecret, environment }
+    = req.body as Record<string, string>;
+
+  if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+  if (!merchantId?.trim()) return res.status(400).json({ error: "merchantId required" });
+
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) return res.status(403).json({ error: "Only organization owners can configure PhonePe." });
+
+  const env: "sandbox" | "production" = environment === "production" ? "production" : "sandbox";
+
+  const existingFields = await fsGet("orgPhonePeConfig", organizationId);
+  const existing = existingFields ? fsFieldsToObj(existingFields) : null;
+
+  const encOrKeep = (newVal: string | undefined, existingKey: string) => {
+    const v = (newVal || "").trim();
+    if (v) return encryptField(v);
+    if (existing?.[existingKey]) return existing[existingKey];
+    return "";
+  };
+
+  const now = new Date();
+  try {
+    await fsSet("orgPhonePeConfig", organizationId, {
+      merchantId:    sv(srvSanitize(merchantId.trim(), 100)),
+      clientId:      sv(encOrKeep(clientId, "clientId")),
+      clientSecret:  sv(encOrKeep(clientSecret, "clientSecret")),
+      saltKey:       sv(encOrKeep(saltKey, "saltKey")),
+      saltIndex:     sv(srvSanitize((saltIndex || "1").trim(), 5)),
+      webhookSecret: sv(encOrKeep(webhookSecret, "webhookSecret")),
+      environment:   sv(env),
+      deleted:       bv(false),
+      createdAt:     existing ? (existingFields?.createdAt ?? tv(now)) : tv(now),
+      updatedAt:     tv(now),
+    });
+
+    const hint = merchantId.trim().slice(0, 4) + "****";
+    await fsSet("organizations", organizationId, {
+      phonePeConfigured:     bv(true),
+      phonePeEnvironment:    sv(env),
+      phonePeMerchantIdHint: sv(hint),
+      updatedAt:             tv(now),
+    });
+
+    console.log(`[PhonePe] ✓ Config saved for org ${organizationId} env:${env}`);
+    return res.json({ success: true, environment: env, merchantIdHint: hint });
+  } catch (err: any) {
+    console.error("[PhonePe] save-config error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/phonepe/delete-config — Owner removes PhonePe integration
+app.post("/api/phonepe/delete-config", authMiddleware, async (req: Request, res: Response) => {
+  const callerClerkId = (req as any).clerkUserId as string;
+  const { organizationId } = req.body as { organizationId: string };
+  if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) return res.status(403).json({ error: "Only owners can remove PhonePe config." });
+
+  try {
+    await fsSet("orgPhonePeConfig", organizationId, {
+      merchantId: sv(""), clientId: sv(""), clientSecret: sv(""),
+      saltKey: sv(""), saltIndex: sv(""), webhookSecret: sv(""),
+      environment: sv("sandbox"), deleted: bv(true), updatedAt: tv(new Date()),
+    });
+    await fsSet("organizations", organizationId, {
+      phonePeConfigured:     bv(false),
+      phonePeEnvironment:    sv("sandbox"),
+      phonePeMerchantIdHint: sv(""),
+      updatedAt:             tv(new Date()),
+    });
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/phonepe/validate — Test stored credentials against PhonePe API
+app.post("/api/phonepe/validate", authMiddleware, async (req: Request, res: Response) => {
+  const callerClerkId = (req as any).clerkUserId as string;
+  const { organizationId } = req.body as { organizationId: string };
+  if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) return res.status(403).json({ error: "Only owners can validate PhonePe config." });
+
+  const ppConfig = await loadPhonePeConfig(organizationId);
+  if (!ppConfig) return res.status(404).json({ valid: false, message: "PhonePe not configured for this organization." });
+
+  const result = await checkPhonePeStatus(ppConfig, `VALIDATE_${Date.now()}`);
+  const credentialsOk = result.errorCode !== "NETWORK_ERROR" && result.errorCode !== "PARSE_ERROR";
+
+  if (credentialsOk) {
+    return res.json({
+      valid: true,
+      message: `Connected to PhonePe ${ppConfig.environment}. Credentials look valid.`,
+      environment: ppConfig.environment,
+    });
+  }
+  return res.json({ valid: false, message: result.errorMessage || "Could not connect to PhonePe. Check credentials." });
+});
+
+// POST /api/phonepe/create-order — Create a PhonePe UPI QR payment order
+app.post("/api/phonepe/create-order", authMiddleware, async (req: Request, res: Response) => {
+  const {
+    organizationId, loanId, installmentId, customerId, customerName, customerPhone,
+    agentId, agentName, amount, collectionType, installmentNo, collectedByRole, collectedById,
+  } = req.body as {
+    organizationId: string; loanId?: string; installmentId?: string;
+    customerId: string; customerName: string; customerPhone?: string;
+    agentId: string; agentName: string; amount: number;
+    collectionType: "LOAN_EMI" | "GENERAL"; installmentNo?: number;
+    collectedByRole?: string; collectedById?: string;
+  };
+
+  if (!organizationId || !customerId || !agentId || !(amount > 0)) {
+    return res.status(400).json({ error: "organizationId, customerId, agentId and amount > 0 required" });
+  }
+  if (amount > 1_00_000) {
+    return res.status(400).json({ error: "Amount cannot exceed ₹1,00,000 per transaction" });
+  }
+
+  const ppConfig = await loadPhonePeConfig(organizationId);
+  if (!ppConfig) return res.status(404).json({ error: "PhonePe not configured for this organization." });
+
+  const merchantTransactionId = generateMerchantTransactionId(organizationId);
+  const note = collectionType === "LOAN_EMI"
+    ? `EMI${installmentNo ? ` #${installmentNo}` : ""} - ${srvSanitize(customerName, 50)}`
+    : `Payment - ${srvSanitize(customerName, 50)}`;
+  const base = getBaseUrl();
+
+  const orderResult = await createPhonePeOrder(ppConfig, {
+    merchantTransactionId,
+    amountRupees:   amount,
+    customerMobile: customerPhone?.replace(/\D/g, "").slice(-10),
+    note,
+    callbackUrl:    `${base}/api/phonepe/webhook`,
+    redirectUrl:    `${base}/payment-complete`,
+  });
+
+  if (!orderResult.success) {
+    console.error("[PhonePe] create-order failed:", orderResult.errorCode, orderResult.errorMessage);
+    return res.status(502).json({
+      error: orderResult.errorMessage || "PhonePe order creation failed",
+      code:  orderResult.errorCode,
+    });
+  }
+
+  const now = new Date();
+  try {
+    await fsSet("phonePeOrders", merchantTransactionId, {
+      merchantTransactionId: sv(merchantTransactionId),
+      organizationId:        sv(organizationId),
+      loanId:                sv(loanId || ""),
+      installmentId:         sv(installmentId || ""),
+      customerId:            sv(customerId),
+      customerName:          sv(srvSanitize(customerName, 100)),
+      agentId:               sv(agentId),
+      agentName:             sv(srvSanitize(agentName, 100)),
+      amount:                { doubleValue: amount },
+      collectionType:        sv(collectionType || "LOAN_EMI"),
+      installmentNo:         iv(installmentNo || 0),
+      collectedByRole:       sv(collectedByRole || "AGENT"),
+      collectedById:         sv(collectedById || agentId),
+      status:                sv("INITIATED"),
+      collectionRecorded:    bv(false),
+      expiresAt:             tv(new Date(now.getTime() + 15 * 60 * 1000)),
+      createdAt:             tv(now),
+      updatedAt:             tv(now),
+    });
+  } catch (fsErr: any) {
+    console.error("[PhonePe] ⚠ Firestore order write (non-fatal):", fsErr.message);
+  }
+
+  return res.json({ success: true, merchantTransactionId, intentUrl: orderResult.intentUrl });
+});
+
+// POST /api/phonepe/check-status — Poll payment status from PhonePe
+app.post("/api/phonepe/check-status", authMiddleware, async (req: Request, res: Response) => {
+  const { organizationId, merchantTransactionId } = req.body as {
+    organizationId: string; merchantTransactionId: string;
+  };
+  if (!organizationId || !merchantTransactionId) {
+    return res.status(400).json({ error: "organizationId and merchantTransactionId required" });
+  }
+
+  const ppConfig = await loadPhonePeConfig(organizationId);
+  if (!ppConfig) return res.status(404).json({ error: "PhonePe not configured." });
+
+  const statusResult = await checkPhonePeStatus(ppConfig, merchantTransactionId);
+
+  if (statusResult.state === "COMPLETED" || statusResult.state === "FAILED") {
+    try {
+      await fsUpdate("phonePeOrders", merchantTransactionId, {
+        status:               sv(statusResult.state === "COMPLETED" ? "SUCCESS" : "FAILED"),
+        phonePeTransactionId: sv(statusResult.transactionId || ""),
+        utr:                  sv(statusResult.utr || ""),
+        errorCode:            sv(statusResult.errorCode || ""),
+        updatedAt:            tv(new Date()),
+      });
+    } catch (_) {}
+  }
+
+  return res.json({
+    success:       statusResult.success,
+    state:         statusResult.state,
+    transactionId: statusResult.transactionId,
+    utr:           statusResult.utr,
+    amountRupees:  statusResult.amountRupees,
+    errorCode:     statusResult.errorCode,
+    errorMessage:  statusResult.errorMessage,
+  });
+});
+
+// POST /api/phonepe/webhook — Server-to-server callback from PhonePe
+// No authMiddleware — PhonePe calls this directly; verified via HMAC-SHA256 signature
+app.post(
+  "/api/phonepe/webhook",
+  express.text({ type: ["application/json", "text/plain", "*/*"] }),
+  async (req: Request, res: Response) => {
+    console.log("[PhonePe Webhook] ▶ Received", req.method, req.headers["content-type"]);
+    try {
+      const xVerify = (req.headers["x-verify"] as string) || "";
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
+      if (!rawBody || rawBody === "{}") return res.status(400).json({ error: "Empty body" });
+
+      let decodedPayload: any = null;
+      try {
+        const parsed = JSON.parse(rawBody);
+        const responseB64 = parsed.response;
+        decodedPayload = responseB64
+          ? JSON.parse(Buffer.from(responseB64, "base64").toString("utf8"))
+          : parsed;
+      } catch {
+        return res.status(400).json({ error: "Invalid payload" });
+      }
+
+      const merchantTransactionId =
+        decodedPayload?.data?.merchantTransactionId ||
+        decodedPayload?.merchantTransactionId || "";
+
+      if (!merchantTransactionId) return res.status(400).json({ error: "merchantTransactionId missing" });
+      console.log("[PhonePe Webhook] merchantTransactionId:", merchantTransactionId);
+
+      const orderFields = await fsGet("phonePeOrders", merchantTransactionId);
+      if (!orderFields) {
+        console.warn("[PhonePe Webhook] Order not found:", merchantTransactionId);
+        return res.status(200).json({ acknowledged: true }); // 200 prevents retries
+      }
+      const order     = fsFieldsToObj(orderFields);
+      const cfgFields = await fsGet("orgPhonePeConfig", order.organizationId);
+      const cfg       = cfgFields ? fsFieldsToObj(cfgFields) : null;
+
+      if (cfg && xVerify) {
+        try {
+          const webhookSecret = decryptField(cfg.webhookSecret || "");
+          const parsedBody    = JSON.parse(rawBody);
+          const b64ForVerify  = parsedBody.response || Buffer.from(rawBody).toString("base64");
+          const valid = verifyPhonePeWebhook(b64ForVerify, xVerify, webhookSecret, cfg.saltIndex || "1");
+          if (!valid) {
+            console.warn("[PhonePe Webhook] ✗ Signature invalid");
+            return res.status(401).json({ error: "Invalid signature" });
+          }
+          console.log("[PhonePe Webhook] ✓ Signature verified");
+        } catch (sigErr: any) {
+          console.warn("[PhonePe Webhook] Signature check error:", sigErr.message);
+        }
+      }
+
+      const payData      = decodedPayload?.data || {};
+      const state        = payData?.state || "";
+      const responseCode = payData?.responseCode || decodedPayload?.code || "";
+      const pgTxnId      = payData?.transactionId || "";
+      const utr          = payData?.paymentInstrument?.utr || "";
+
+      const isSuccess = state === "COMPLETED" || responseCode === "SUCCESS" || decodedPayload?.code === "PAYMENT_SUCCESS";
+      const isFailed  = state === "FAILED"    || responseCode === "FAILED"   || decodedPayload?.code === "PAYMENT_ERROR";
+      const newStatus = isSuccess ? "SUCCESS" : isFailed ? "FAILED" : "PENDING";
+
+      console.log(`[PhonePe Webhook] status:${newStatus} | pgTxnId:${pgTxnId} | utr:${utr}`);
+
+      try {
+        await fsUpdate("phonePeOrders", merchantTransactionId, {
+          status:               sv(newStatus),
+          phonePeTransactionId: sv(pgTxnId),
+          utr:                  sv(utr),
+          updatedAt:            tv(new Date()),
+        });
+      } catch (fsErr: any) {
+        console.error("[PhonePe Webhook] Firestore update failed:", fsErr.message);
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err: any) {
+      console.error("[PhonePe Webhook] Error:", err.message);
+      return res.status(500).json({ error: "Webhook processing failed" });
+    }
+  }
+);
 
 // ─── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

@@ -1,0 +1,763 @@
+# ULTRA MASTER PROMPT
+# FUNDCIRCLE - MULTI-TENANT PHONEPE PAYMENT GATEWAY INTEGRATION
+# OWNER + AGENT + CUSTOMER COMPLETE END-TO-END FLOW
+
+You are a Principal FinTech Architect, Senior Full-Stack Engineer, Security Architect, Payment Gateway Specialist, React + Vite + TypeScript + Firebase/Firestore + Clerk Authentication + PhonePe PG expert.
+
+Design and implement a production-ready, enterprise-grade, multi-tenant payment gateway system for FundCircle.
+
+This is a Pigmy Savings & Loan Collection Management SaaS Platform.
+
+The implementation must be secure, scalable, real-time, mobile-first, banking-grade, and production-ready.
+
+========================================================
+CORE OBJECTIVE
+========================================================
+
+Each Organization owns its own PhonePe Merchant Account.
+
+FundCircle DOES NOT own or receive customer money.
+
+FundCircle acts only as the SaaS platform.
+
+Every payment must directly reach the respective Organization's PhonePe Merchant Account.
+
+========================================================
+MULTI-TENANT ARCHITECTURE
+========================================================
+
+Each Organization stores its own:
+
+• Merchant Name
+• Merchant ID
+• Client ID
+• Client Secret (if applicable)
+• Salt Key
+• Salt Index
+• Callback URL
+• Webhook Secret
+• Environment
+    Sandbox
+    Production
+
+Store all credentials encrypted.
+
+Never hardcode credentials.
+
+Never expose credentials to frontend.
+
+========================================================
+PERMISSIONS
+========================================================
+
+ORGANIZATION OWNER
+
+Can:
+
+Configure PhonePe
+
+Update Merchant Credentials
+
+Enable/Disable UPI
+
+View Payment Reports
+
+Refund (future)
+
+View Transactions
+
+View Settlement
+
+Generate API Keys
+
+Test Sandbox
+
+Switch Sandbox ⇄ Production
+
+--------------------------------------------------------
+
+AGENT / COLLECTOR
+
+Can:
+
+Generate QR Code
+
+Generate Payment Request
+
+View Payment Status
+
+Collect EMI
+
+Collect Loan Payment
+
+Collect Savings
+
+Show QR to Customer
+
+Generate Receipt
+
+Cannot:
+
+View Merchant Credentials
+
+Edit Merchant Settings
+
+Change UPI ID
+
+Change Merchant Account
+
+Launch UPI from Collector Device
+
+--------------------------------------------------------
+
+CUSTOMER
+
+Can:
+
+Scan QR
+
+Pay
+
+View Receipt
+
+View Transaction
+
+Download Receipt
+
+========================================================
+PAYMENT SETTINGS
+========================================================
+
+Organization Settings
+
+↓
+
+Payment Gateway
+
+↓
+
+PhonePe
+
+↓
+
+Fields
+
+Merchant Name
+
+Merchant ID
+
+Client ID
+
+Client Secret
+
+Salt Key
+
+Salt Index
+
+Webhook Secret
+
+Environment
+
+Sandbox
+
+Production
+
+Validate Connection
+
+Save
+
+Encrypt Everything
+
+========================================================
+PAYMENT FLOW
+========================================================
+
+Collector
+
+↓
+
+Open Customer
+
+↓
+
+Open Loan
+
+↓
+
+Outstanding
+
+↓
+
+Monthly EMI
+
+↓
+
+Enter Amount
+
+↓
+
+Validation
+
+Amount > 0
+
+Amount <= Outstanding
+
+↓
+
+Choose Payment Mode
+
+Cash
+
+UPI
+
+Bank
+
+↓
+
+UPI Selected
+
+↓
+
+Backend
+
+Loads Organization Merchant Credentials
+
+↓
+
+Creates PhonePe Payment Order
+
+↓
+
+Creates Merchant Transaction ID
+
+↓
+
+Creates Order ID
+
+↓
+
+Generates Dynamic QR
+
+↓
+
+Returns QR
+
+========================================================
+QR CODE
+========================================================
+
+QR must contain
+
+Merchant ID
+
+Merchant Transaction ID
+
+Amount
+
+Currency
+
+Transaction Note
+
+Callback URL
+
+Webhook URL
+
+Loan ID
+
+Customer ID
+
+Organization ID
+
+Do NOT display these values.
+
+Encode internally.
+
+========================================================
+AGENT SCREEN
+========================================================
+
+Show
+
+Customer
+
+Loan
+
+Outstanding
+
+Payment Amount
+
+QR Code
+
+Instruction
+
+"Ask customer to scan using PhonePe, Google Pay, Paytm, BHIM or any UPI application."
+
+Buttons
+
+Cancel
+
+Refresh Status
+
+No
+
+Merchant Name
+
+UPI ID
+
+Account Number
+
+IFSC
+
+Repayment Type
+
+Pay With UPI App
+
+PhonePe Launcher
+
+Google Pay Launcher
+
+Paytm Launcher
+
+========================================================
+CUSTOMER FLOW
+========================================================
+
+Customer
+
+↓
+
+Opens PhonePe
+
+or
+
+Google Pay
+
+or
+
+Paytm
+
+or
+
+BHIM
+
+↓
+
+Scans QR
+
+↓
+
+Reviews Amount
+
+↓
+
+Pays
+
+↓
+
+PhonePe
+
+Processes
+
+========================================================
+PAYMENT STATUS
+========================================================
+
+Pending
+
+Processing
+
+Success
+
+Failed
+
+Cancelled
+
+Expired
+
+Timeout
+
+========================================================
+BACKEND VERIFICATION
+========================================================
+
+PhonePe
+
+↓
+
+Webhook
+
+↓
+
+Backend
+
+↓
+
+Verify Signature
+
+↓
+
+Verify Merchant
+
+↓
+
+Verify Order
+
+↓
+
+Verify Amount
+
+↓
+
+Verify Organization
+
+↓
+
+Verify Transaction
+
+Only then
+
+Mark Payment Successful
+
+Never trust frontend.
+
+========================================================
+AFTER SUCCESS
+========================================================
+
+Create Transaction
+
+Create Receipt
+
+Update Customer
+
+Update Loan
+
+Update EMI
+
+Reduce Outstanding
+
+Update Ledger
+
+Update Dashboard
+
+Update Reports
+
+Update Notifications
+
+Update Analytics
+
+Create Audit Log
+
+Realtime Sync
+
+========================================================
+VALIDATIONS
+========================================================
+
+Reject
+
+Amount <= 0
+
+Amount > Outstanding
+
+Duplicate Transaction
+
+Duplicate QR
+
+Duplicate Order
+
+Expired QR
+
+Inactive Loan
+
+Closed Loan
+
+Blocked Customer
+
+Inactive Organization
+
+========================================================
+QR RULES
+========================================================
+
+Generate new QR every payment.
+
+Every QR has
+
+Unique Transaction ID
+
+Unique Order ID
+
+Expiration Time
+
+Cannot reuse old QR.
+
+========================================================
+LOAN RULES
+========================================================
+
+Outstanding > 0
+
+Loan Active
+
+Outstanding = 0
+
+Loan Closed
+
+Automatically remove from
+
+Collection Entry
+
+Pending EMI
+
+Active Loan List
+
+========================================================
+REPAYMENT DETECTION
+========================================================
+
+Automatically detect
+
+Regular EMI
+
+Partial
+
+Advance
+
+Foreclosure
+
+Do NOT ask Collector.
+
+Backend decides.
+
+========================================================
+RECEIPT
+========================================================
+
+Generate PDF Receipt
+
+Receipt Number
+
+Customer
+
+Collector
+
+Organization
+
+Loan Number
+
+Amount
+
+Transaction ID
+
+PhonePe Transaction ID
+
+Payment Method
+
+Date
+
+Time
+
+QR Reference
+
+Outstanding Balance
+
+========================================================
+NOTIFICATIONS
+========================================================
+
+Owner
+
+Payment Received
+
+Collector
+
+Payment Successful
+
+Customer
+
+Payment Successful
+
+Receipt Ready
+
+Loan Updated
+
+========================================================
+REPORTS
+========================================================
+
+Realtime
+
+Collection Report
+
+Loan Report
+
+Outstanding Report
+
+UPI Report
+
+Cash Report
+
+Collector Report
+
+Organization Report
+
+Analytics
+
+========================================================
+AUDIT LOGS
+========================================================
+
+Store
+
+Organization
+
+Collector
+
+Customer
+
+Loan
+
+Transaction
+
+Order
+
+Merchant Transaction
+
+Amount
+
+Gateway Response
+
+IP
+
+Device
+
+Timestamp
+
+========================================================
+SECURITY
+========================================================
+
+AES Encryption
+
+Encrypted Secrets
+
+Backend Only
+
+No Secret in Frontend
+
+Webhook Verification
+
+Signature Verification
+
+Rate Limiting
+
+Replay Protection
+
+Duplicate Protection
+
+========================================================
+PERFORMANCE
+========================================================
+
+Realtime Firestore Listeners
+
+Optimistic Updates
+
+Lazy Loading
+
+Pagination
+
+Indexed Queries
+
+Background Verification
+
+No Page Refresh
+
+No router.refresh()
+
+No window.location.reload()
+
+========================================================
+UI / UX
+========================================================
+
+Android Optimized
+
+Material 3
+
+Dark Theme
+
+Large Touch Targets
+
+Skeleton Loading
+
+Smooth Animations
+
+Realtime Status
+
+Professional Banking Interface
+
+========================================================
+SANDBOX
+========================================================
+
+Support PhonePe Sandbox
+
+Owner can test
+
+QR Generation
+
+Payment Success
+
+Payment Failure
+
+Cancellation
+
+Timeout
+
+Webhook
+
+Signature Verification
+
+Without affecting production.
+
+========================================================
+PRODUCTION
+========================================================
+
+Owner switches
+
+Sandbox
+
+↓
+
+Production
+
+without code changes.
+
+All organizations remain isolated.
+
+Each organization uses only its own PhonePe Merchant Account.
+
+========================================================
+FINAL REQUIREMENTS
+========================================================
+
+Implement the entire module without placeholders.
+
+No mock APIs.
+
+No dummy QR codes.
+
+No hardcoded merchant credentials.
+
+No exposed secrets.
+
+No broken UI.
+
+No manual refresh.
+
+Every payment must update the entire application in real time.
+
+The final implementation should meet production standards expected of a banking-grade, enterprise multi-tenant SaaS platform.
