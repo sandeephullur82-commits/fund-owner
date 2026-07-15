@@ -469,7 +469,8 @@ export default function App() {
         publishableKey={clerkPubKey}
         signInUrl="/auth/sign-in"
         signUpUrl="/auth/sign-up"
-        fallbackRedirectUrl="/auth/callback"
+        signInFallbackRedirectUrl="/auth/callback"
+        signUpFallbackRedirectUrl="/auth/callback"
       >
         <BrowserRouter>
           <ScrollToTop />

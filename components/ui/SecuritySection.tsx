@@ -329,7 +329,7 @@ function EmailSection() {
     try {
       const ea = user.emailAddresses.find(e => e.id === emailId);
       if (!ea) throw new Error("Email not found.");
-      await ea.makeDefaultPrimary();
+      await user.update({ primaryEmailAddressId: ea.id });
       toast.success("Primary email updated!");
     } catch (err: any) {
       toast.error(err?.errors?.[0]?.longMessage || err?.message || "Failed to update primary email.");

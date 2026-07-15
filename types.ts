@@ -518,7 +518,7 @@ export interface LoanApplication {
   employmentType: string;
   address: string;
   notes: string;
-  status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "DISBURSED";
+  status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "DISBURSED" | "DOCUMENTS_REQUESTED";
   rejectionReason?: string;
   reviewedByActorId?: string;
   reviewedByActorName?: string;

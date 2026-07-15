@@ -22,7 +22,7 @@ class OfflineSyncService {
   subscribe(listener: SyncListener) {
     this.listeners.add(listener);
     listener(this.syncStatus, this.pendingCount);
-    return () => this.listeners.delete(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   private notify(status: SyncStatus, count: number) {

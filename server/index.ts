@@ -703,10 +703,14 @@ app.post("/api/create-customer", authMiddleware, async (req, res) => {
 });
 
 // ─── Deactivate agent ─────────────────────────────────────────────────────────
-app.post("/api/agents/:userId/deactivate", async (req, res) => {
+app.post("/api/agents/:userId/deactivate", authMiddleware, async (req, res) => {
   const { userId } = req.params;
   const { organizationId } = req.body;
   if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+  const callerClerkId = (req as any).clerkUserId;
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) return res.status(403).json({ error: "Only owners/managers can deactivate agents" });
 
   try {
     await clerkClient.organizations.deleteOrganizationMembership({
@@ -720,10 +724,14 @@ app.post("/api/agents/:userId/deactivate", async (req, res) => {
 });
 
 // ─── Reactivate agent ─────────────────────────────────────────────────────────
-app.post("/api/agents/:userId/reactivate", async (req, res) => {
+app.post("/api/agents/:userId/reactivate", authMiddleware, async (req, res) => {
   const { userId } = req.params;
   const { organizationId } = req.body;
   if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+  const callerClerkId = (req as any).clerkUserId;
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) return res.status(403).json({ error: "Only owners/managers can reactivate agents" });
 
   try {
     const reactivateRole = "org:member";

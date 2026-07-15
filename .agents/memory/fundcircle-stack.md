@@ -1,28 +1,8 @@
 ---
 name: FundCircle stack and routing
-description: Tech stack, path aliases, UI component locations, and workflow config for FundCircle.
+description: Vite+React+TS+Tailwind v4+Clerk+Firestore project structure, path aliases, and known type-checking gotchas.
 ---
 
-## Stack
-- React 19 + Vite + TypeScript + Tailwind CSS v4 + Shadcn UI (base-ui based)
-- Clerk for auth (`@clerk/clerk-react`)
-- Firebase Firestore for realtime data (onSnapshot via `subscribeToCollection`)
-- Framer Motion for animations
-- React Router DOM v7
-
-## Path Aliases
-- `@` maps to project root (not `src/`), configured in `vite.config.ts`
-- UI components at `components/ui/` (root level, not `src/components/ui/`)
-- Source pages at `src/pages/`
-- Lib hooks at `lib/firestore-hooks.ts`
-
-## Workflow
-- Dev command: `npm run dev -- --port 5000` (must use port 5000 for webview outputType)
-- Must `chmod +x node_modules/.bin/vite` and `npm install --include=optional` if Rollup native module is missing
-
-## UI Component Notes
-- Sheet uses `@base-ui/react/dialog` — SheetTrigger supports `render` prop
-- Tabs from shadcn — can suppress TabsList with `hidden` class for custom nav
-- `useCollectionRealtime` always adds `where("organizationId", "==", organization.id)` automatically
-
-**Why:** Path alias at root vs src is a common gotcha; forgetting it breaks all @/ imports.
+- Vite+React+TS+Tailwind v4+Clerk+Firestore; path alias `@` maps to project root (not src/); shared layout components must live in root `components/` (not `src/components/`) to be importable as `@/components/...`.
+- `@types/react`/`@types/react-dom` are NOT in package.json by default even though React 19 is used — without them, `tsc --noEmit` silently loses JSX prop checking (extra/missing props go unchecked) except for oddly-specific excess-property-check errors on inline-typed components used with a `key` prop. Install `@types/react@^19` + `@types/react-dom@^19` as devDependencies to get real type-checking; several latent bugs (ClerkProvider prop names, useEffect returning non-void cleanup, missing status union members) only surface once these are installed.
+- ClerkProvider in this project must use `signInFallbackRedirectUrl`/`signUpFallbackRedirectUrl`, not `fallbackRedirectUrl` (not a valid prop on the installed Clerk version).
